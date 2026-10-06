@@ -330,7 +330,7 @@ class AtlasCubeRadioCard extends HTMLElement {
 
       // Nie pokazujemy logo, jeżeli dopasowanie nie osiągnęło
       // bezpiecznego progu. Wtedy karta wraca do normalnej nazwy stacji.
-      const accepted = best && bestScore >= 1000;
+      const accepted = best && bestScore >= 500;
 
       const result = {
         logo: accepted && best?.favicon
