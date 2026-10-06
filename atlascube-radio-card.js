@@ -974,8 +974,8 @@ class AtlasCubeRadioCardEditor extends HTMLElement {
       </style>
 
       <div class="box">
-        <div class="badge">v0.4</div>
-        <h2>AtlasCube Radio</h2>
+        <div class="badge">TEST — LOGO STACJI</div>
+        <h2>AtlasCube Radio — TEST LOGO STACJI</h2>
         <p>Karta wykrywa AtlasCube i korzysta z natywnej dostępności MQTT przez stany jego encji.</p>
 
         <button class="auto" id="auto">🔎 Automatycznie wykryj AtlasCube</button>
@@ -1057,8 +1057,8 @@ customElements.define("atlascube-radio-card", AtlasCubeRadioCard);
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "atlascube-radio-card",
-  name: "AtlasCube Radio Card",
-  description: "Compact modern radio card for AtlasCube in Home Assistant",
+  name: "AtlasCube Radio Card — TEST LOGO STACJI",
+  description: "WERSJA TESTOWA — wyszukiwanie i wyświetlanie logo stacji radiowej",
   preview: true,
-  documentationURL: "https://github.com/MarLip1981/atlascube-radio-card"
+  documentationURL: "https://github.com/MarLip1981/atlascube-radio-card-station-logo-test"
 });
