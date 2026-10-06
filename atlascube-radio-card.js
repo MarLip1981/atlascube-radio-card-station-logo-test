@@ -167,6 +167,18 @@ class AtlasCubeRadioCard extends HTMLElement {
     return "<div class=\"station-identity\"><img class=\"station-logo\" src=\"" + this._escape(logo) + "\" alt=\"\" aria-hidden=\"true\" onerror=\"this.style.display='none';this.nextElementSibling.style.display='block';\"><div class=\"station station-logo-fallback\">" + safeStation + "</div></div>";
   }
 
+  _stationLogoKey(value) {
+    let key = this._normalize(value);
+    // RMF MAXXX to historyczna pisownia tej samej stacji co obecne RMF MAXX.
+    if (key === "rmf maxxx") key = "rmf maxx";
+    return key;
+  }
+
+  _stationLogoQueryName(value) {
+    const key = this._stationLogoKey(value);
+    return key === "rmf maxx" ? "RMF MAXX" : String(value || "").trim();
+  }
+
   _stationNameTokens(value) {
     return this._normalize(value)
       .split(/\\s+/)
@@ -267,6 +279,7 @@ class AtlasCubeRadioCard extends HTMLElement {
   async _loadStationLogo() {
     const station = this._getStation();
     const requestId = ++this._stationLogoRequestId;
+    const searchName = this._stationLogoQueryName(station);
 
     if (!station) {
       this._stationLogo = null;
@@ -274,7 +287,7 @@ class AtlasCubeRadioCard extends HTMLElement {
       return;
     }
 
-    const cacheKey = this._normalize(station);
+    const cacheKey = this._stationLogoKey(station);
 
     if (this._stationLogoCache.has(cacheKey)) {
       this._stationLogo = this._stationLogoCache.get(cacheKey);
@@ -283,9 +296,61 @@ class AtlasCubeRadioCard extends HTMLElement {
     }
 
     try {
-      const encoded = encodeURIComponent(station);
+      // Najpierw szukamy prawdziwego logo w Wikimedia Commons.
+      // To daje zwykle znacznie lepszy plik niż favicon z Radio Browser.
+      const commonsUrl =
+        "https://commons.wikimedia.org/w/api.php?action=query&generator=search" +
+        "&gsrsearch=" + encodeURIComponent(searchName + " logo") +
+        "&gsrnamespace=6&gsrlimit=10&prop=imageinfo&iiprop=url&iiurlwidth=600" +
+        "&format=json&origin=*";
 
-      // 1. Najpierw żądamy WYŁĄCZNIE dokładnej nazwy.
+      const commonsResponse = await fetch(commonsUrl, {
+        headers: { "Accept": "application/json" }
+      });
+
+      if (commonsResponse.ok) {
+        const commonsData = await commonsResponse.json();
+        const pages = Object.values(commonsData?.query?.pages || {});
+        const wanted = this._stationLogoKey(searchName);
+        let best = null;
+        let bestScore = -1;
+
+        for (const page of pages) {
+          const title = String(page?.title || "")
+            .replace(/^File:/i, "")
+            .replace(/\\.[a-z0-9]{2,5}$/i, "")
+            .replace(/\\blogo\\b/gi, "")
+            .trim();
+          const normalizedTitle = this._stationLogoKey(title);
+          let score = -1;
+          if (normalizedTitle === wanted) score = 1000;
+          else if (normalizedTitle.includes(wanted) || wanted.includes(normalizedTitle)) score = 700;
+
+          const image = page?.imageinfo?.[0];
+          if (score >= 1000 && image?.thumburl) {
+            best = image.thumburl;
+            bestScore = score;
+            break;
+          }
+          if (score > bestScore && image?.thumburl) {
+            best = image.thumburl;
+            bestScore = score;
+          }
+        }
+
+        if (requestId !== this._stationLogoRequestId) return;
+
+        if (best && bestScore >= 1000) {
+          const result = { logo: best, station, matchScore: bestScore, source: "commons" };
+          this._stationLogoCache.set(cacheKey, result);
+          this._stationLogo = result;
+          this._render();
+          return;
+        }
+      }
+
+      // Drugie źródło: Radio Browser. Używamy WYŁĄCZNIE dokładnej nazwy.
+      const encoded = encodeURIComponent(searchName);
       const exactUrl =
         "https://de1.api.radio-browser.info/json/stations/bynameexact/" +
         encoded +
@@ -295,56 +360,32 @@ class AtlasCubeRadioCard extends HTMLElement {
         headers: { "Accept": "application/json" }
       });
 
-      if (!exactResponse.ok) {
-        throw new Error("HTTP " + exactResponse.status);
-      }
+      if (!exactResponse.ok) throw new Error("HTTP " + exactResponse.status);
 
-      let data = await exactResponse.json();
-      let candidates = Array.isArray(data) ? data : [];
-
-      // 2. Jeżeli dokładne wyszukiwanie nic nie znalazło,
-      //    próbujemy szerszego search, ale z bardzo ostrym filtrem nazwy.
-      if (!candidates.some(result => this._stationLogoScore(result, station) >= 1000)) {
-        const searchUrl =
-          "https://de1.api.radio-browser.info/json/stations/search?name=" +
-          encoded +
-          "&countrycode=PL&limit=50&order=votes&reverse=true";
-
-        const searchResponse = await fetch(searchUrl, {
-          headers: { "Accept": "application/json" }
-        });
-
-        if (searchResponse.ok) {
-          data = await searchResponse.json();
-          const searchCandidates = Array.isArray(data) ? data : [];
-          candidates = [...candidates, ...searchCandidates];
-        }
-      }
-
-      if (requestId !== this._stationLogoRequestId) return;
-
+      const data = await exactResponse.json();
+      const candidates = Array.isArray(data) ? data : [];
       let best = null;
       let bestScore = -1;
 
       for (const result of candidates) {
-        const score = this._stationLogoScore(result, station);
-
+        const score = this._stationLogoScore(result, searchName);
         if (score > bestScore) {
           bestScore = score;
           best = result;
         }
       }
 
-      // Nie pokazujemy logo, jeżeli dopasowanie nie osiągnęło
-      // bezpiecznego progu. Wtedy karta wraca do normalnej nazwy stacji.
-      const accepted = best && bestScore >= 500;
+      if (requestId !== this._stationLogoRequestId) return;
 
+      // Favicon Radio Browser jest tylko awaryjnym źródłem.
+      const accepted = best && bestScore >= 1000;
       const result = {
         logo: accepted && best?.favicon
           ? String(best.favicon).replace(/^http:/i, "https:")
           : null,
-        station: accepted ? String(best?.name || "") : "",
-        matchScore: accepted ? bestScore : -1
+        station: accepted ? String(best?.name || station) : "",
+        matchScore: accepted ? bestScore : -1,
+        source: accepted ? "radio-browser" : "none"
       };
 
       this._stationLogoCache.set(cacheKey, result);
@@ -352,14 +393,7 @@ class AtlasCubeRadioCard extends HTMLElement {
       this._render();
     } catch (error) {
       if (requestId !== this._stationLogoRequestId) return;
-
-      const result = {
-        logo: null,
-        station: "",
-        matchScore: -1,
-        error: error?.message || "Nieznany błąd"
-      };
-
+      const result = { logo: null, station: "", matchScore: -1, error: error?.message || "Nieznany błąd" };
       this._stationLogoCache.set(cacheKey, result);
       this._stationLogo = result;
       this._render();
