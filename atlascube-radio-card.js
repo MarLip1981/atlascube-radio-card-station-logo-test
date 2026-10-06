@@ -160,6 +160,13 @@ class AtlasCubeRadioCard extends HTMLElement {
     return score;
   }
 
+  _renderStationIdentity(station, enabled, logo) {
+    if (!station || station === "unknown" || station === "unavailable") return "";
+    const safeStation = this._escape(station);
+    if (!enabled || !logo) return "<div class=\"station\">" + safeStation + "</div>";
+    return "<div class=\"station-identity\"><img class=\"station-logo\" src=\"" + this._escape(logo) + "\" alt=\"\" aria-hidden=\"true\" onerror=\"this.style.display='none';this.nextElementSibling.style.display='block';\"><div class=\"station station-logo-fallback\">" + safeStation + "</div></div>";
+  }
+
   _stationNameTokens(value) {
     return this._normalize(value)
       .split(/\\s+/)
@@ -606,6 +613,8 @@ class AtlasCubeRadioCard extends HTMLElement {
           text-align: center;
         }
 
+        .station-identity { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .station-logo-fallback { display: none; }
         .station-logo {
           display:block;
           max-width:140px;
@@ -772,7 +781,7 @@ class AtlasCubeRadioCard extends HTMLElement {
 
         <div class="content">
           <div class="brand ${webUrl ? "web" : ""}" id="brand" title="${webUrl ? "Otwórz panel AtlasCube" : ""}"><span class="brand-icon">◈</span><span>ATLAS <span class="brand-cube">CUBE</span></span></div>
-          ${!online ? `<div class="offline-icon"><ha-icon icon="mdi:wifi-off"></ha-icon></div><div class="offline-title">Radio AtlasCube</div><div class="offline-text">niedostępne w sieci</div>` : artworkEnabled && playing ? `${station && station !== "unknown" && station !== "unavailable" ? (stationLogoEnabled && stationLogo ? `<img class="station-logo" src="${stationLogo}" alt="${this._escape(station)}">` : `<div class="station">${this._escape(station)}</div>`) : ""}${image}<div class="artist">${this._escape(artist || "Nieznany wykonawca")}</div><div class="title">${this._escape(title)}</div>${album ? `<div class="album">${this._escape(album)}</div>` : ""}` : !artworkEnabled ? `${station && station !== "unknown" && station !== "unavailable" ? (stationLogoEnabled && stationLogo ? `<img class="station-logo" src="${stationLogo}" alt="${this._escape(station)}">` : `<div class="station">${this._escape(station)}</div>`) : ""}${image}` : ""}
+          ${!online ? `<div class="offline-icon"><ha-icon icon="mdi:wifi-off"></ha-icon></div><div class="offline-title">Radio AtlasCube</div><div class="offline-text">niedostępne w sieci</div>` : artworkEnabled && playing ? `${this._renderStationIdentity(station, stationLogoEnabled, stationLogo)}${image}<div class="artist">${this._escape(artist || "Nieznany wykonawca")}</div><div class="title">${this._escape(title)}</div>${album ? `<div class="album">${this._escape(album)}</div>` : ""}` : !artworkEnabled ? `${this._renderStationIdentity(station, stationLogoEnabled, stationLogo)}${image}` : ""}
 
           ${online ? `<div class="controls">
             <button class="skip" id="previous" aria-label="Poprzednia stacja">
