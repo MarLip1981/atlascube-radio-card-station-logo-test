@@ -31,7 +31,7 @@ class AtlasCubeRadioCard extends HTMLElement {
   }
 
   static getConfigElement() {
-    return document.createElement("atlascube-radio-card-editor");
+    return document.createElement("atlascube-radio-card-station-logo-test-editor");
   }
 
   static getStubConfig() {
@@ -1049,14 +1049,14 @@ class AtlasCubeRadioCardEditor extends HTMLElement {
   }
 }
 
-customElements.define("atlascube-radio-card-editor", AtlasCubeRadioCardEditor);
+customElements.define("atlascube-radio-card-station-logo-test-editor", AtlasCubeRadioCardEditor);
 
 
-customElements.define("atlascube-radio-card", AtlasCubeRadioCard);
+customElements.define("atlascube-radio-card-station-logo-test", AtlasCubeRadioCard);
 
 window.customCards = window.customCards || [];
 window.customCards.push({
-  type: "atlascube-radio-card",
+  type: "atlascube-radio-card-station-logo-test",
   name: "AtlasCube Radio Card — TEST LOGO STACJI",
   description: "WERSJA TESTOWA — wyszukiwanie i wyświetlanie logo stacji radiowej",
   preview: true,
