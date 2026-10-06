@@ -160,36 +160,202 @@ class AtlasCubeRadioCard extends HTMLElement {
     return score;
   }
 
+  _stationNameTokens(value) {
+    return this._normalize(value)
+      .split(/\\s+/)
+      .filter(token => token.length >= 2);
+  }
+
+  _levenshtein(a, b) {
+    const aa = String(a || "");
+    const bb = String(b || "");
+    if (aa === bb) return 0;
+    if (!aa.length) return bb.length;
+    if (!bb.length) return aa.length;
+
+    const prev = Array(bb.length + 1);
+    const curr = Array(bb.length + 1);
+
+    for (let j = 0; j <= bb.length; j++) prev[j] = j;
+
+    for (let i = 1; i <= aa.length; i++) {
+      curr[0] = i;
+
+      for (let j = 1; j <= bb.length; j++) {
+        const cost = aa[i - 1] === bb[j - 1] ? 0 : 1;
+        curr[j] = Math.min(
+          curr[j - 1] + 1,
+          prev[j] + 1,
+          prev[j - 1] + cost
+        );
+      }
+
+      for (let j = 0; j <= bb.length; j++) prev[j] = curr[j];
+    }
+
+    return prev[bb.length];
+  }
+
+  _stationNameSimilarity(wanted, candidate) {
+    const wantedTokens = this._stationNameTokens(wanted);
+    const candidateTokens = this._stationNameTokens(candidate);
+
+    if (!wantedTokens.length || !candidateTokens.length) return 0;
+
+    let matched = 0;
+
+    for (const wantedToken of wantedTokens) {
+      let best = 0;
+
+      for (const candidateToken of candidateTokens) {
+        const distance = this._levenshtein(wantedToken, candidateToken);
+        const maxLength = Math.max(wantedToken.length, candidateToken.length);
+        const similarity = maxLength ? 1 - distance / maxLength : 0;
+        best = Math.max(best, similarity);
+      }
+
+      if (best >= 0.88) matched++;
+    }
+
+    return matched / wantedTokens.length;
+  }
+
+  _stationLogoScore(result, wanted) {
+    const name = String(result?.name || "").trim();
+    if (!name || !result?.favicon) return -1;
+
+    const normalizedWanted = this._normalize(wanted);
+    const normalizedName = this._normalize(name);
+
+    if (!normalizedWanted || !normalizedName) return -1;
+
+    // Najważniejsze: dokładna nazwa ma absolutne pierwszeństwo.
+    if (normalizedName === normalizedWanted) {
+      return 1000 + Math.min(100, Number(result?.votes) || 0) / 100;
+    }
+
+    const wantedTokens = this._stationNameTokens(wanted);
+    const candidateTokens = this._stationNameTokens(name);
+
+    // Nie pozwalamy, aby samo "RMF" dopasowało np. RMF ON do RMF MAXX.
+    // Każdy istotny człon nazwy użytkownika musi mieć bardzo podobny
+    // odpowiednik w nazwie znalezionej stacji.
+    const similarity = this._stationNameSimilarity(wanted, name);
+    if (similarity < 0.999) return -1;
+
+    let score = 500 + similarity * 100;
+
+    // Lekko preferujemy polskie stacje, ale dopiero po poprawnym dopasowaniu nazwy.
+    if (String(result?.countrycode || "").toUpperCase() === "PL") score += 20;
+
+    // Więcej głosów = preferowany wariant logo spośród równoważnych nazw.
+    score += Math.min(20, (Number(result?.votes) || 0) / 100);
+
+    // Nazwa z mniejszą liczbą dodatkowych słów jest lepszym odpowiednikiem.
+    score -= Math.max(0, candidateTokens.length - wantedTokens.length) * 3;
+
+    return score;
+  }
+
   async _loadStationLogo() {
     const station = this._getStation();
     const requestId = ++this._stationLogoRequestId;
-    if (!station) { this._stationLogo = null; this._render(); return; }
+
+    if (!station) {
+      this._stationLogo = null;
+      this._render();
+      return;
+    }
+
     const cacheKey = this._normalize(station);
-    if (this._stationLogoCache.has(cacheKey)) { this._stationLogo = this._stationLogoCache.get(cacheKey); this._render(); return; }
+
+    if (this._stationLogoCache.has(cacheKey)) {
+      this._stationLogo = this._stationLogoCache.get(cacheKey);
+      this._render();
+      return;
+    }
+
     try {
-      const url = "https://de1.api.radio-browser.info/json/stations/byname/" + encodeURIComponent(station) + "?limit=10";
-      const response = await fetch(url, { headers: { "Accept": "application/json" } });
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      const data = await response.json();
-      if (requestId !== this._stationLogoRequestId) return;
-      const wanted = this._normalize(station);
-      let best = null; let bestScore = -1;
-      for (const result of (Array.isArray(data) ? data : [])) {
-        const name = this._normalize(result?.name);
-        if (!name || !result?.favicon) continue;
-        let score = 0;
-        if (name === wanted) score += 100;
-        else if (name.includes(wanted) || wanted.includes(name)) score += 60;
-        if (String(result?.countrycode || "").toUpperCase() === "PL") score += 20;
-        if (Number(result?.votes) > 0) score += Math.min(10, Number(result.votes) / 100);
-        if (score > bestScore) { bestScore = score; best = result; }
+      const encoded = encodeURIComponent(station);
+
+      // 1. Najpierw żądamy WYŁĄCZNIE dokładnej nazwy.
+      const exactUrl =
+        "https://de1.api.radio-browser.info/json/stations/bynameexact/" +
+        encoded +
+        "?limit=50&order=votes&reverse=true";
+
+      const exactResponse = await fetch(exactUrl, {
+        headers: { "Accept": "application/json" }
+      });
+
+      if (!exactResponse.ok) {
+        throw new Error("HTTP " + exactResponse.status);
       }
-      const result = { logo: best?.favicon ? String(best.favicon).replace(/^http:/i, "https:") : null, station: best?.name || "", matchScore: bestScore };
-      this._stationLogoCache.set(cacheKey, result); this._stationLogo = result; this._render();
+
+      let data = await exactResponse.json();
+      let candidates = Array.isArray(data) ? data : [];
+
+      // 2. Jeżeli dokładne wyszukiwanie nic nie znalazło,
+      //    próbujemy szerszego search, ale z bardzo ostrym filtrem nazwy.
+      if (!candidates.some(result => this._stationLogoScore(result, station) >= 1000)) {
+        const searchUrl =
+          "https://de1.api.radio-browser.info/json/stations/search?name=" +
+          encoded +
+          "&countrycode=PL&limit=50&order=votes&reverse=true";
+
+        const searchResponse = await fetch(searchUrl, {
+          headers: { "Accept": "application/json" }
+        });
+
+        if (searchResponse.ok) {
+          data = await searchResponse.json();
+          const searchCandidates = Array.isArray(data) ? data : [];
+          candidates = [...candidates, ...searchCandidates];
+        }
+      }
+
+      if (requestId !== this._stationLogoRequestId) return;
+
+      let best = null;
+      let bestScore = -1;
+
+      for (const result of candidates) {
+        const score = this._stationLogoScore(result, station);
+
+        if (score > bestScore) {
+          bestScore = score;
+          best = result;
+        }
+      }
+
+      // Nie pokazujemy logo, jeżeli dopasowanie nie osiągnęło
+      // bezpiecznego progu. Wtedy karta wraca do normalnej nazwy stacji.
+      const accepted = best && bestScore >= 1000;
+
+      const result = {
+        logo: accepted && best?.favicon
+          ? String(best.favicon).replace(/^http:/i, "https:")
+          : null,
+        station: accepted ? String(best?.name || "") : "",
+        matchScore: accepted ? bestScore : -1
+      };
+
+      this._stationLogoCache.set(cacheKey, result);
+      this._stationLogo = result;
+      this._render();
     } catch (error) {
       if (requestId !== this._stationLogoRequestId) return;
-      const result = { logo: null, station: "", matchScore: -1, error: error?.message || "Nieznany błąd" };
-      this._stationLogoCache.set(cacheKey, result); this._stationLogo = result; this._render();
+
+      const result = {
+        logo: null,
+        station: "",
+        matchScore: -1,
+        error: error?.message || "Nieznany błąd"
+      };
+
+      this._stationLogoCache.set(cacheKey, result);
+      this._stationLogo = result;
+      this._render();
     }
   }
 
