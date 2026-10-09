@@ -13,6 +13,7 @@ class AtlasCubeRadioCard extends HTMLElement {
     this._stationLogoRequestId = 0;
     this._lastTrack = "";
     this._lastStation = "";
+    this._lastRenderSignature = "";
   }
 
   setConfig(config) {
@@ -28,6 +29,7 @@ class AtlasCubeRadioCard extends HTMLElement {
 
     this._cache = new Map();
     this._requestId = 0;
+    this._lastRenderSignature = "";
     this._render();
   }
 
@@ -59,7 +61,11 @@ class AtlasCubeRadioCard extends HTMLElement {
       this._lastStation = station;
       if (this._config.show_station_logo !== false) this._loadStationLogo();
     }
-    this._render();
+    const signature = this._renderStateSignature();
+    if (signature !== this._lastRenderSignature) {
+      this._lastRenderSignature = signature;
+      this._render();
+    }
   }
 
   getCardSize() {
@@ -114,6 +120,33 @@ class AtlasCubeRadioCard extends HTMLElement {
     return value && value !== "unknown" && value !== "unavailable"
       ? String(value).trim()
       : "";
+  }
+
+  _renderStateSignature() {
+    const r = this._config?.radio || {};
+    const read = entityId => {
+      if (!entityId) return null;
+      const obj = this._hass?.states?.[entityId];
+      if (!obj) return null;
+      return {
+        state: obj.state,
+        options: obj.attributes?.options,
+        min: obj.attributes?.min,
+        max: obj.attributes?.max
+      };
+    };
+    return JSON.stringify({
+      station: read(r.station),
+      title: read(r.title),
+      playback: read(r.playback),
+      volume: read(r.volume),
+      source: read(r.source),
+      availability: read(r.availability),
+      show_artwork: this._config?.show_artwork,
+      show_station_logo: this._config?.show_station_logo,
+      show_source: this._config?.show_source,
+      show_volume: this._config?.show_volume
+    });
   }
 
   _parseTrack(value) {
@@ -199,18 +232,18 @@ class AtlasCubeRadioCard extends HTMLElement {
   _stationLogoSearchNames(value) {
     const key = this._stationLogoKey(value);
     const aliases = {
-      "jedynka": ["Polskie Radio Program 1", "Polskie Radio Jedynka", "Jedynka", "Program 1"],
-      "polskie radio jedynka": ["Polskie Radio Program 1", "Polskie Radio Jedynka", "Jedynka", "Program 1"],
-      "polskie radio program 1": ["Polskie Radio Program 1", "Polskie Radio Jedynka", "Jedynka", "Program 1"],
-      "program 1": ["Polskie Radio Program 1", "Polskie Radio Jedynka", "Jedynka", "Program 1"],
-      "dwojka": ["Polskie Radio Program 2", "Polskie Radio Dwójka", "Dwójka", "Program 2"],
-      "polskie radio dwojka": ["Polskie Radio Program 2", "Polskie Radio Dwójka", "Dwójka", "Program 2"],
-      "polskie radio program 2": ["Polskie Radio Program 2", "Polskie Radio Dwójka", "Dwójka", "Program 2"],
-      "program 2": ["Polskie Radio Program 2", "Polskie Radio Dwójka", "Dwójka", "Program 2"],
-      "trojka": ["Polskie Radio Program 3", "Polskie Radio Trójka", "Trójka", "Program 3"],
-      "polskie radio trojka": ["Polskie Radio Program 3", "Polskie Radio Trójka", "Trójka", "Program 3"],
-      "polskie radio program 3": ["Polskie Radio Program 3", "Polskie Radio Trójka", "Trójka", "Program 3"],
-      "program 3": ["Polskie Radio Program 3", "Polskie Radio Trójka", "Trójka", "Program 3"]
+      "jedynka": ["Polskie Radio Program 1"],
+      "polskie radio jedynka": ["Polskie Radio Program 1"],
+      "polskie radio program 1": ["Polskie Radio Program 1"],
+      "program 1": ["Polskie Radio Program 1"],
+      "dwojka": ["Polskie Radio Program 2"],
+      "polskie radio dwojka": ["Polskie Radio Program 2"],
+      "polskie radio program 2": ["Polskie Radio Program 2"],
+      "program 2": ["Polskie Radio Program 2"],
+      "trojka": ["Polskie Radio Program 3"],
+      "polskie radio trojka": ["Polskie Radio Program 3"],
+      "polskie radio program 3": ["Polskie Radio Program 3"],
+      "program 3": ["Polskie Radio Program 3"]
     };
     return aliases[key] || [this._stationLogoQueryName(value)];
   }
@@ -332,7 +365,6 @@ class AtlasCubeRadioCard extends HTMLElement {
     }
 
     this._stationLogo = { logo: null, loading: true };
-    this._render();
 
     const token = String(this._config?.station_logo_token || "").trim();
     const normalizedQueries = searchNames.map(name => ({
