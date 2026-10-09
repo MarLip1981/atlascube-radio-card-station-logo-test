@@ -19,6 +19,7 @@ class AtlasCubeRadioCard extends HTMLElement {
     this._config = {
       show_artwork: true,
       show_station_logo: true,
+      station_logo_token: "",
       show_source: true,
       show_volume: true,
       ...config,
@@ -163,7 +164,8 @@ class AtlasCubeRadioCard extends HTMLElement {
   _renderStationIdentity(station, enabled, logo) {
     if (!station || station === "unknown" || station === "unavailable") return "";
     const safeStation = this._escape(station);
-    if (!enabled || !logo) return "<div class=\"station\">" + safeStation + "</div>";
+    if (!enabled) return "<div class=\"station station-identity-text\">" + safeStation + "</div>";
+    if (!logo) return "<div class=\"station-identity\"><div class=\"station station-logo-fallback-visible\">" + safeStation + "</div></div>";
     return "<div class=\"station-identity\"><img class=\"station-logo\" src=\"" + this._escape(logo) + "\" alt=\"\" aria-hidden=\"true\" onerror=\"this.style.display='none';this.nextElementSibling.style.display='block';\"><div class=\"station station-logo-fallback\">" + safeStation + "</div></div>";
   }
 
@@ -288,112 +290,59 @@ class AtlasCubeRadioCard extends HTMLElement {
     }
 
     const cacheKey = this._stationLogoKey(station);
-
     if (this._stationLogoCache.has(cacheKey)) {
       this._stationLogo = this._stationLogoCache.get(cacheKey);
       this._render();
       return;
     }
 
-    try {
-      // Najpierw szukamy prawdziwego logo w Wikimedia Commons.
-      // To daje zwykle znacznie lepszy plik niż favicon z Radio Browser.
-      const commonsUrl =
-        "https://commons.wikimedia.org/w/api.php?action=query&generator=search" +
-        "&gsrsearch=" + encodeURIComponent(searchName + " logo") +
-        "&gsrnamespace=6&gsrlimit=10&prop=imageinfo&iiprop=url&iiurlwidth=600" +
-        "&format=json&origin=*";
+    // Zostawiamy widoczną nazwę stacji podczas szukania. Obszar ma stałą
+    // wysokość, więc wynik wyszukiwania nie powinien przesuwać reszty karty.
+    this._stationLogo = { logo: null, loading: true };
+    this._render();
 
-      const commonsResponse = await fetch(commonsUrl, {
-        headers: { "Accept": "application/json" }
-      });
+    const token = String(this._config?.station_logo_token || "").trim();
 
-      if (commonsResponse.ok) {
-        const commonsData = await commonsResponse.json();
-        const pages = Object.values(commonsData?.query?.pages || {});
-        const wanted = this._stationLogoKey(searchName);
-        let best = null;
-        let bestScore = -1;
-
-        for (const page of pages) {
-          const title = String(page?.title || "")
-            .replace(/^File:/i, "")
-            .replace(/\\.[a-z0-9]{2,5}$/i, "")
-            .replace(/\\blogo\\b/gi, "")
-            .trim();
-          const normalizedTitle = this._stationLogoKey(title);
-          let score = -1;
-          if (normalizedTitle === wanted) score = 1000;
-          else if (normalizedTitle.includes(wanted) || wanted.includes(normalizedTitle)) score = 700;
-
-          const image = page?.imageinfo?.[0];
-          if (score >= 1000 && image?.thumburl) {
-            best = image.thumburl;
-            bestScore = score;
-            break;
-          }
-          if (score > bestScore && image?.thumburl) {
-            best = image.thumburl;
-            bestScore = score;
-          }
-        }
-
-        if (requestId !== this._stationLogoRequestId) return;
-
-        if (best && bestScore >= 1000) {
-          const result = { logo: best, station, matchScore: bestScore, source: "commons" };
-          this._stationLogoCache.set(cacheKey, result);
-          this._stationLogo = result;
-          this._render();
-          return;
-        }
-      }
-
-      // Drugie źródło: Radio Browser. Używamy WYŁĄCZNIE dokładnej nazwy.
-      const encoded = encodeURIComponent(searchName);
-      const exactUrl =
-        "https://de1.api.radio-browser.info/json/stations/bynameexact/" +
-        encoded +
-        "?limit=50&order=votes&reverse=true";
-
-      const exactResponse = await fetch(exactUrl, {
-        headers: { "Accept": "application/json" }
-      });
-
-      if (!exactResponse.ok) throw new Error("HTTP " + exactResponse.status);
-
-      const data = await exactResponse.json();
-      const candidates = Array.isArray(data) ? data : [];
-      let best = null;
-      let bestScore = -1;
-
-      for (const result of candidates) {
-        const score = this._stationLogoScore(result, searchName);
-        if (score > bestScore) {
-          bestScore = score;
-          best = result;
-        }
-      }
-
+    // Logo.dev ma osobny publiczny endpoint obrazów, który obsługuje wyszukiwanie
+    // po nazwie. Używamy klucza publishable (pk_), nigdy klucza sekretnego.
+    if (token) {
+      const directUrl = "https://img.logo.dev/name/" +
+        encodeURIComponent(searchName.trim().replace(/\\s+/g, "-").toLowerCase()) +
+        "?token=" + encodeURIComponent(token) +
+        "&size=256&format=png&fallback=404";
+      const result = { logo: directUrl, station, source: "logo.dev" };
+      this._stationLogoCache.set(cacheKey, result);
       if (requestId !== this._stationLogoRequestId) return;
+      this._stationLogo = result;
+      this._render();
+      return;
+    }
 
-      // Favicon Radio Browser jest tylko awaryjnym źródłem.
-      const accepted = best && bestScore >= 1000;
+    // Bez tokenu nie udajemy, że znaleźliśmy logo. Zachowujemy nazwę stacji
+    // i korzystamy z dokładnego dopasowania Radio Browser jako źródła awaryjnego.
+    try {
+      const encoded = encodeURIComponent(searchName);
+      const exactUrl = "https://de1.api.radio-browser.info/json/stations/bynameexact/" +
+        encoded + "?limit=50&order=votes&reverse=true";
+      const response = await fetch(exactUrl, { headers: { "Accept": "application/json" } });
+      if (!response.ok) throw new Error("HTTP " + response.status);
+      const data = await response.json();
+      const candidates = Array.isArray(data) ? data : [];
+      const exact = candidates.find(item =>
+        this._normalize(item?.name) === this._normalize(searchName) && item?.favicon
+      );
+      if (requestId !== this._stationLogoRequestId) return;
       const result = {
-        logo: accepted && best?.favicon
-          ? String(best.favicon).replace(/^http:/i, "https:")
-          : null,
-        station: accepted ? String(best?.name || station) : "",
-        matchScore: accepted ? bestScore : -1,
-        source: accepted ? "radio-browser" : "none"
+        logo: exact?.favicon ? String(exact.favicon).replace(/^http:/i, "https:") : null,
+        station,
+        source: exact?.favicon ? "radio-browser" : "none"
       };
-
       this._stationLogoCache.set(cacheKey, result);
       this._stationLogo = result;
       this._render();
     } catch (error) {
       if (requestId !== this._stationLogoRequestId) return;
-      const result = { logo: null, station: "", matchScore: -1, error: error?.message || "Nieznany błąd" };
+      const result = { logo: null, station, source: "none", error: error?.message || "Nieznany błąd" };
       this._stationLogoCache.set(cacheKey, result);
       this._stationLogo = result;
       this._render();
@@ -647,16 +596,25 @@ class AtlasCubeRadioCard extends HTMLElement {
           text-align: center;
         }
 
-        .station-identity { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .station-identity {
+          min-height: 72px;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          box-sizing: border-box;
+        }
         .station-logo-fallback { display: none; }
+        .station-logo-fallback-visible { display: block; }
+        .station-identity-text { min-height: 72px; display:flex; align-items:center; justify-content:center; }
         .station-logo {
           display:block;
-          max-width:140px;
-          max-height:58px;
+          max-width:160px;
+          max-height:64px;
           width:auto;
           height:auto;
           object-fit:contain;
-          margin:0 auto 12px;
+          margin:0 auto;
           filter:drop-shadow(0 4px 12px rgba(0,0,0,.30));
         }
 
@@ -1200,6 +1158,11 @@ class AtlasCubeRadioCardEditor extends HTMLElement {
         ${this._field("next", "Następna")}
         ${this._field("availability", "Dostępność — tylko ręczny override")}
 
+        <label>
+          <span>Logo.dev — klucz publishable (opcjonalny, zaczyna się od pk_)</span>
+          <input id="station_logo_token" type="text" autocomplete="off" value="${this._escapeAttr(this._config.station_logo_token || "")}" placeholder="pk_…">
+        </label>
+
         <div class="checks">
           <label>
             <input type="checkbox" id="show_artwork" ${this._config.show_artwork !== false ? "checked" : ""}>
@@ -1234,6 +1197,11 @@ class AtlasCubeRadioCardEditor extends HTMLElement {
         this._set(e.target.dataset.role, e.target.value);
         this._render();
       });
+    });
+
+    this.shadowRoot.querySelector("#station_logo_token")?.addEventListener("change", e => {
+      this._config.station_logo_token = e.target.value.trim();
+      this._fire();
     });
 
     this.shadowRoot.querySelector("#show_artwork")?.addEventListener("change", e => {
