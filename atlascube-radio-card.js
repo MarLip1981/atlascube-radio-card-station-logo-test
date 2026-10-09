@@ -352,20 +352,20 @@ class AtlasCubeRadioCard extends HTMLElement {
 
   _stationLogoCommonsDirect(station) {
     const key = this._stationLogoKey(station);
+    // Bezpośrednie adresy upload.wikimedia.org omijają przekierowanie Special:FilePath,
+    // które w niektórych klientach HA nie kończyło się poprawnym wyświetleniem obrazu.
     const files = {
-      "rmf fm": "RMF FM logotyp 2022.png",
-      "rmf maxx": "Logo RMF MAXX.png",
-      "rmf classic": "RMF CLASSIC - logotyp.png",
-      "radio zet": "Radio ZET logo.png",
-      "polskie radio program 1": "Polskie Radio Program 1.svg",
-      "polskie radio program 2": "Polskie Radio Program 2.svg",
-      "polskie radio program 3": "Logotyp programu trzeciego Polskiego Radia.svg",
-      "radio eska": "Logo Radia Eska.svg"
+      "rmf fm": "https://upload.wikimedia.org/wikipedia/commons/c/ca/RMF_FM_logotyp_2022.png",
+      // Pozioma, żółto-czarna wersja zamiast różowej grafiki RMF MAXX.
+      "rmf maxx": "https://upload.wikimedia.org/wikipedia/commons/0/03/RMF_Maxxx_logo.png",
+      "rmf classic": "https://commons.wikimedia.org/wiki/Special:FilePath/RMF%20CLASSIC%20-%20logotyp.png",
+      "radio zet": "https://commons.wikimedia.org/wiki/Special:FilePath/Radio%20ZET%20logo.png",
+      "polskie radio program 1": "https://commons.wikimedia.org/wiki/Special:FilePath/Polskie%20Radio%20Program%201.svg",
+      "polskie radio program 2": "https://commons.wikimedia.org/wiki/Special:FilePath/Polskie%20Radio%20Program%202.svg",
+      "polskie radio program 3": "https://commons.wikimedia.org/wiki/Special:FilePath/Logotyp%20programu%20trzeciego%20Polskiego%20Radia.svg",
+      "radio eska": "https://commons.wikimedia.org/wiki/Special:FilePath/Logo%20Radia%20Eska.svg"
     };
-    const file = files[key];
-    return file
-      ? "https://commons.wikimedia.org/wiki/Special:FilePath/" + encodeURIComponent(file)
-      : null;
+    return files[key] || null;
   }
 
   async _findCommonsStationLogo(station, requestId) {
