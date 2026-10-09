@@ -329,3 +329,12 @@ MIT License — see [LICENSE](LICENSE).
 ## Station logo test
 
 This repository is a separate test build for radio station logo lookup via Radio Browser. If a logo cannot be found, the card displays the station name instead of using an icon fallback.
+
+
+## Logo stacji — test źródła
+
+Karta testowa utrzymuje nazwę stacji widoczną podczas wyszukiwania i rezerwuje stałą wysokość dla nazwy/logo, aby układ nie skakał.
+
+Opcjonalnie można podać **Logo.dev publishable key** w edytorze karty. Klucz publiczny zaczyna się od `pk_` i jest przeznaczony do użycia w przeglądarce. **Nie wklejaj klucza sekretnego `sk_` do karty ani do repozytorium.** Klucz można uzyskać na stronie [Logo.dev](https://www.logo.dev/). Bez klucza karta pozostawia nazwę stacji i próbuje użyć dokładnego dopasowania Radio Browser jako źródła awaryjnego.
+
+Logo.dev jest katalogiem marek, a nie specjalistycznym katalogiem stacji radiowych, więc wynik nadal trzeba sprawdzić dla kilku stacji. Jeśli serwis nie zwróci grafiki, karta wróci do tekstowej nazwy stacji.
