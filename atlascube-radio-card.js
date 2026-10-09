@@ -305,7 +305,7 @@ class AtlasCubeRadioCard extends HTMLElement {
 
     // Logo.dev ma osobny publiczny endpoint obrazów, który obsługuje wyszukiwanie
     // po nazwie. Używamy klucza publishable (pk_), nigdy klucza sekretnego.
-    if (token) {
+    if (token.startsWith("pk_")) {
       const directUrl = "https://img.logo.dev/name/" +
         encodeURIComponent(searchName.trim().toLowerCase().split(" ").filter(Boolean).join("-")) +
         "?token=" + encodeURIComponent(token) +
