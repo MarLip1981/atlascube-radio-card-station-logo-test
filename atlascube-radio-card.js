@@ -205,7 +205,13 @@ class AtlasCubeRadioCard extends HTMLElement {
   _stationLogoKey(value) {
     let key = this._normalize(value);
     // RMF MAXXX to historyczna pisownia tej samej stacji co obecne RMF MAXX.
-    if (key === "rmf maxxx") key = "rmf maxx";
+    if (key === "rmf maxxx") return "rmf maxx";
+
+    // Ujednolicamy także pełne nazwy programów Polskiego Radia,
+    // np. „Polskie Radio Program 1 (Jedynka)”, do jednego klucza.
+    if (/\b(jedynka|program 1)\b/.test(key)) return "polskie radio program 1";
+    if (/\b(dwojka|program 2)\b/.test(key)) return "polskie radio program 2";
+    if (/\b(trojka|program 3)\b/.test(key)) return "polskie radio program 3";
     return key;
   }
 
