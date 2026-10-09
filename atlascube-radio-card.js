@@ -20,7 +20,6 @@ class AtlasCubeRadioCard extends HTMLElement {
     this._config = {
       show_artwork: true,
       show_station_logo: true,
-      station_logo_token: "",
       show_source: true,
       show_volume: true,
       ...config,
@@ -351,11 +350,74 @@ class AtlasCubeRadioCard extends HTMLElement {
     return score;
   }
 
+  _stationLogoCommonsDirect(station) {
+    const key = this._stationLogoKey(station);
+    const files = {
+      "rmf fm": "RMF FM logo.svg",
+      "rmf maxx": "Logo RMF MAXX.png",
+      "rmf classic": "RMF CLASSIC - logotyp.png",
+      "radio zet": "Radio ZET logo.png",
+      "polskie radio program 1": "Polskie Radio Program 1.svg",
+      "polskie radio program 2": "Polskie Radio Program 2.svg",
+      "polskie radio program 3": "Logotyp programu trzeciego Polskiego Radia.svg",
+      "radio eska": "Logo Radia Eska.svg"
+    };
+    const file = files[key];
+    return file
+      ? "https://commons.wikimedia.org/wiki/Special:FilePath/" + encodeURIComponent(file)
+      : null;
+  }
+
+  async _findCommonsStationLogo(station, requestId) {
+    const direct = this._stationLogoCommonsDirect(station);
+    if (direct) return { logo: direct, source: "wikimedia-commons" };
+
+    const searchNames = this._stationLogoSearchNames(station);
+    for (const name of searchNames) {
+      const query = encodeURIComponent(name + " radio logo");
+      const url = "https://commons.wikimedia.org/w/api.php?action=query&generator=search" +
+        "&gsrsearch=" + query + "&gsrnamespace=6&gsrlimit=10" +
+        "&prop=imageinfo&iiprop=url&iiurlwidth=400&format=json&origin=*";
+      const response = await fetch(url, { headers: { "Accept": "application/json" } });
+      if (!response.ok) continue;
+      const data = await response.json();
+      if (requestId !== this._stationLogoRequestId) return null;
+
+      const wantedTokens = this._stationNameTokens(name);
+      const pages = Object.values(data?.query?.pages || {});
+      const candidates = pages.map(page => {
+        const title = String(page.title || "").replace(/^File:/i, "");
+        const normalizedTitle = this._normalize(title);
+        const titleTokens = this._stationNameTokens(title);
+        const containsAll = wantedTokens.length > 0 &&
+          wantedTokens.every(token => titleTokens.some(candidate =>
+            candidate === token ||
+            (token.length >= 4 && candidate.length >= 4 && this._levenshtein(token, candidate) <= 1)
+          ));
+        const looksLikeLogo = /logo|logotyp|logotype|loga/i.test(title);
+        const looksLikePhoto = /\b(photo|fotografia|zdjecie|samochod|studio|nadajnik)\b/i.test(normalizedTitle);
+        const score = (containsAll ? 100 : 0) + (looksLikeLogo ? 30 : 0) - (looksLikePhoto ? 200 : 0);
+        return { page, title, score, containsAll, looksLikeLogo, looksLikePhoto };
+      }).filter(item =>
+        item.containsAll && item.looksLikeLogo && !item.looksLikePhoto &&
+        (item.page.imageinfo?.[0]?.thumburl || item.page.imageinfo?.[0]?.url)
+      ).sort((a, b) => b.score - a.score);
+
+      const best = candidates[0];
+      if (best) {
+        return {
+          logo: best.page.imageinfo[0].thumburl || best.page.imageinfo[0].url,
+          source: "wikimedia-commons"
+        };
+      }
+    }
+    return null;
+  }
+
   async _loadStationLogo() {
     const station = this._getStation();
     const requestId = ++this._stationLogoRequestId;
     const searchNames = this._stationLogoSearchNames(station);
-    const searchName = searchNames[0] || this._stationLogoQueryName(station);
 
     if (!station) {
       this._stationLogo = null;
@@ -372,95 +434,85 @@ class AtlasCubeRadioCard extends HTMLElement {
 
     this._stationLogo = { logo: null, loading: true };
 
-    const token = String(this._config?.station_logo_token || "").trim();
-    const normalizedQueries = searchNames.map(name => ({
-      name,
-      normalized: this._normalize(name),
-      tokens: this._stationNameTokens(name)
-    }));
-
     try {
-      const allCandidates = [];
-      // Wykonujemy osobne zapytania dla aliasów: np. „Jedynka” może
-      // być opisana w katalogu jako „Polskie Radio Program 1” albo odwrotnie.
-      for (const queryName of searchNames) {
-        const encoded = encodeURIComponent(queryName);
-        const searchUrl = "https://de1.api.radio-browser.info/json/stations/search?name=" +
-          encoded + "&limit=100&order=votes&reverse=true";
-        const response = await fetch(searchUrl, { headers: { "Accept": "application/json" } });
-        if (!response.ok) continue;
-        const data = await response.json();
-        if (Array.isArray(data)) allCandidates.push(...data);
-        if (requestId !== this._stationLogoRequestId) return;
-      }
-
-      const seen = new Set();
-      const candidates = allCandidates
-        .filter(item => item?.favicon && item?.name)
-        .filter(item => {
-          const id = this._normalize(item.name) + "|" + String(item.favicon);
-          if (seen.has(id)) return false;
-          seen.add(id);
-          return true;
-        })
-        .map(item => {
-          const normalized = this._normalize(item.name);
-          const candidateTokens = this._stationNameTokens(item.name);
-          let bestMatch = null;
-          for (const query of normalizedQueries) {
-            const allWordsPresent = query.tokens.length > 0 &&
-              query.tokens.every(token => candidateTokens.some(candidateToken =>
-                candidateToken === token ||
-                (token.length >= 4 && candidateToken.length >= 4 &&
-                  this._levenshtein(token, candidateToken) <= 1)
-              ));
-            const exact = normalized === query.normalized;
-            if (!exact && !allWordsPresent) continue;
-            const extraWords = Math.max(0, candidateTokens.length - query.tokens.length);
-            const score = (exact ? 1000 : 500) - extraWords * 5 +
-              Math.min(20, (Number(item.votes) || 0) / 100);
-            if (!bestMatch || score > bestMatch.score) bestMatch = { exact, score };
-          }
-          return { item, ...bestMatch };
-        })
-        .filter(entry => entry.score !== undefined)
-        .sort((a, b) => b.score - a.score);
-
+      // 1. Wikimedia Commons: stałe mapowania dla znanych stacji, a potem
+      // ostrożne wyszukiwanie po nazwie pliku. Bez pobierania paczki logo.
+      let result = await this._findCommonsStationLogo(station, requestId);
       if (requestId !== this._stationLogoRequestId) return;
 
-      let logo = candidates[0]?.item?.favicon
-        ? String(candidates[0].item.favicon).replace(/^http:/i, "https:")
-        : null;
-      let source = logo ? "radio-browser" : "none";
+      // 2. Radio Browser jest rezerwą, gdy Commons nie znajdzie wiarygodnego pliku.
+      if (!result?.logo) {
+        const normalizedQueries = searchNames.map(name => ({
+          name,
+          normalized: this._normalize(name),
+          tokens: this._stationNameTokens(name)
+        }));
+        const allCandidates = [];
 
-      // Logo.dev pozostaje ograniczone do nazw jednowyrazowych, bo dla nazw
-      // wieloczłonowych jego dopasowanie potrafi zwracać niewłaściwą rozgłośnię.
-      if (!logo && token.startsWith("pk_") && this._stationNameTokens(station).length <= 1) {
-        logo = "https://img.logo.dev/name/" +
-          encodeURIComponent(station.trim().toLowerCase().split(/\s+/).filter(Boolean).join("-")) +
-          "?token=" + encodeURIComponent(token) +
-          "&size=256&format=png&fallback=404";
-        source = "logo.dev";
+        for (const queryName of searchNames) {
+          const encoded = encodeURIComponent(queryName);
+          const searchUrl = "https://de1.api.radio-browser.info/json/stations/search?name=" +
+            encoded + "&limit=100&order=votes&reverse=true";
+          const response = await fetch(searchUrl, { headers: { "Accept": "application/json" } });
+          if (!response.ok) continue;
+          const data = await response.json();
+          if (Array.isArray(data)) allCandidates.push(...data);
+          if (requestId !== this._stationLogoRequestId) return;
+        }
+
+        const seen = new Set();
+        const candidates = allCandidates
+          .filter(item => item?.favicon && item?.name)
+          .filter(item => {
+            const id = this._normalize(item.name) + "|" + String(item.favicon);
+            if (seen.has(id)) return false;
+            seen.add(id);
+            return true;
+          })
+          .map(item => {
+            const normalized = this._normalize(item.name);
+            const candidateTokens = this._stationNameTokens(item.name);
+            let bestMatch = null;
+            for (const query of normalizedQueries) {
+              const allWordsPresent = query.tokens.length > 0 &&
+                query.tokens.every(token => candidateTokens.some(candidateToken =>
+                  candidateToken === token ||
+                  (token.length >= 4 && candidateToken.length >= 4 &&
+                    this._levenshtein(token, candidateToken) <= 1)
+                ));
+              const exact = normalized === query.normalized;
+              if (!exact && !allWordsPresent) continue;
+              const extraWords = Math.max(0, candidateTokens.length - query.tokens.length);
+              const score = (exact ? 1000 : 500) - extraWords * 5 +
+                Math.min(20, (Number(item.votes) || 0) / 100);
+              if (!bestMatch || score > bestMatch.score) bestMatch = { exact, score };
+            }
+            return { item, ...bestMatch };
+          })
+          .filter(entry => entry.score !== undefined)
+          .sort((a, b) => b.score - a.score);
+
+        if (requestId !== this._stationLogoRequestId) return;
+        const logo = candidates[0]?.item?.favicon
+          ? String(candidates[0].item.favicon).replace(/^http:/i, "https:")
+          : null;
+        if (logo) result = { logo, source: "radio-browser" };
       }
 
-      const result = { logo, station, source };
-      this._stationLogoCache.set(cacheKey, result);
-      this._stationLogo = result;
+      if (requestId !== this._stationLogoRequestId) return;
+      const finalResult = {
+        logo: result?.logo || null,
+        station,
+        source: result?.source || "none"
+      };
+      this._stationLogoCache.set(cacheKey, finalResult);
+      this._stationLogo = finalResult;
       this._render();
     } catch (error) {
       if (requestId !== this._stationLogoRequestId) return;
-      let logo = null;
-      let source = "none";
-      if (token.startsWith("pk_") && this._stationNameTokens(station).length <= 1) {
-        logo = "https://img.logo.dev/name/" +
-          encodeURIComponent(station.trim().toLowerCase().split(/\s+/).filter(Boolean).join("-")) +
-          "?token=" + encodeURIComponent(token) +
-          "&size=256&format=png&fallback=404";
-        source = "logo.dev";
-      }
-      const result = { logo, station, source, error: error?.message || "Nieznany błąd" };
-      this._stationLogoCache.set(cacheKey, result);
-      this._stationLogo = result;
+      const finalResult = { logo: null, station, source: "none", error: error?.message || "Nieznany błąd" };
+      this._stationLogoCache.set(cacheKey, finalResult);
+      this._stationLogo = finalResult;
       this._render();
     }
   }
@@ -1246,10 +1298,7 @@ class AtlasCubeRadioCardEditor extends HTMLElement {
         ${this._field("next", "Następna")}
         ${this._field("availability", "Dostępność — tylko ręczny override")}
 
-        <label>
-          <span>Logo.dev — klucz publishable (opcjonalny, zaczyna się od pk_)</span>
-          <input id="station_logo_token" type="text" autocomplete="off" value="${this._escapeAttr(this._config.station_logo_token || "")}" placeholder="pk_…">
-        </label>
+
 
         <div class="checks">
           <label>
@@ -1287,10 +1336,7 @@ class AtlasCubeRadioCardEditor extends HTMLElement {
       });
     });
 
-    this.shadowRoot.querySelector("#station_logo_token")?.addEventListener("change", e => {
-      this._config.station_logo_token = e.target.value.trim();
-      this._fire();
-    });
+
 
     this.shadowRoot.querySelector("#show_artwork")?.addEventListener("change", e => {
       this._config.show_artwork = e.target.checked;
