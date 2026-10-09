@@ -338,3 +338,8 @@ Karta testowa utrzymuje nazwę stacji widoczną podczas wyszukiwania i rezerwuje
 Opcjonalnie można podać **Logo.dev publishable key** w edytorze karty. Klucz publiczny zaczyna się od `pk_` i jest przeznaczony do użycia w przeglądarce. **Nie wklejaj klucza sekretnego `sk_` do karty ani do repozytorium.** Klucz można uzyskać na stronie [Logo.dev](https://www.logo.dev/). Bez klucza karta pozostawia nazwę stacji i próbuje użyć dokładnego dopasowania Radio Browser jako źródła awaryjnego.
 
 Logo.dev jest katalogiem marek, a nie specjalistycznym katalogiem stacji radiowych, więc wynik nadal trzeba sprawdzić dla kilku stacji. Jeśli serwis nie zwróci grafiki, karta wróci do tekstowej nazwy stacji.
+
+
+## Układ logo stacji
+
+W aktualnym teście logo AtlasCube znajduje się w lewym górnym rogu i otwiera panel radia. Logo stacji, jeśli uda się je pobrać, pojawia się w prawym górnym rogu. Pełna nazwa stacji jest zawsze wyświetlana osobno, centralnie nad okładką utworu, więc wyszukiwanie logo nie zastępuje nazwy ani nie powinno przesuwać jej w inne miejsce.
