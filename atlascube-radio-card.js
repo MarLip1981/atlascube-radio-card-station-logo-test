@@ -760,8 +760,8 @@ class AtlasCubeRadioCard extends HTMLElement {
         .brand-cube { opacity:.58; }
         .brand.web { cursor:pointer; }
         .brand.web:active { transform:scale(.995); }
-        .station-logo-slot { flex:0 0 auto; max-width:48%; height:38px; display:flex; align-items:center; justify-content:flex-end; overflow:hidden; }
-        .station-logo { display:block; max-width:100%; max-height:36px; width:auto; height:auto; object-fit:contain; filter:drop-shadow(0 2px 6px rgba(0,0,0,.24)); }
+        .station-logo-slot { flex:0 0 auto; max-width:54%; height:56px; display:flex; align-items:center; justify-content:flex-end; overflow:hidden; }
+        .station-logo { display:block; max-width:100%; max-height:54px; width:auto; height:auto; object-fit:contain; filter:drop-shadow(0 2px 6px rgba(0,0,0,.24)); }
         .station-logo-slot.empty { display:none; }
         .station-name { width:100%; margin:0 0 10px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:20px; line-height:1.25; font-weight:700; letter-spacing:.025em; opacity:.96; overflow-wrap:anywhere; box-sizing:border-box; }
 
