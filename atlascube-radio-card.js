@@ -307,7 +307,7 @@ class AtlasCubeRadioCard extends HTMLElement {
     // po nazwie. Używamy klucza publishable (pk_), nigdy klucza sekretnego.
     if (token) {
       const directUrl = "https://img.logo.dev/name/" +
-        encodeURIComponent(searchName.trim().replace(/\\s+/g, "-").toLowerCase()) +
+        encodeURIComponent(searchName.trim().toLowerCase().split(" ").filter(Boolean).join("-")) +
         "?token=" + encodeURIComponent(token) +
         "&size=256&format=png&fallback=404";
       const result = { logo: directUrl, station, source: "logo.dev" };
