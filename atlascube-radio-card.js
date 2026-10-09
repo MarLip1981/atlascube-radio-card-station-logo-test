@@ -581,16 +581,16 @@ class AtlasCubeRadioCard extends HTMLElement {
         .offline-title { font-size:17px; font-weight:700; }
         .offline-text { font-size:13px; opacity:.65; margin-top:4px; }
 
-        .topbar { width:100%; min-height:42px; display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; box-sizing:border-box; }
+        .topbar { width:100%; min-height:32px; display:flex; align-items:center; justify-content:flex-start; gap:12px; margin-bottom:6px; box-sizing:border-box; }
         .brand { display:flex; align-items:center; justify-content:flex-start; gap:7px; margin:0; font-size:16px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; opacity:.94; flex:1 1 auto; min-width:0; }
         .brand-icon { font-size:22px; line-height:1; }
         .brand-cube { opacity:.58; }
         .brand.web { cursor:pointer; }
         .brand.web:active { transform:scale(.995); }
-        .station-logo-slot { flex:0 0 116px; width:116px; height:42px; display:flex; align-items:center; justify-content:flex-end; overflow:hidden; }
-        .station-logo { display:block; max-width:112px; max-height:40px; width:auto; height:auto; object-fit:contain; filter:drop-shadow(0 2px 6px rgba(0,0,0,.24)); }
-        .station-logo-slot.empty { display:none; }
-        .station-name { width:100%; min-height:34px; margin:4px 0 14px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:17px; line-height:1.25; font-weight:700; letter-spacing:.025em; opacity:.94; overflow-wrap:anywhere; box-sizing:border-box; }
+        .station-logo-wrap { width:100%; display:flex; justify-content:center; align-items:center; margin:0 0 5px; overflow:hidden; }
+        .station-logo { display:block; max-width:min(180px, 70%); max-height:34px; width:auto; height:auto; object-fit:contain; filter:drop-shadow(0 2px 6px rgba(0,0,0,.24)); }
+        .station-logo-wrap.empty { display:none; }
+        .station-name { width:100%; margin:0 0 10px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:17px; line-height:1.25; font-weight:700; letter-spacing:.025em; opacity:.94; overflow-wrap:anywhere; box-sizing:border-box; }
 
                 .cover,
         .no-cover {
@@ -746,7 +746,7 @@ class AtlasCubeRadioCard extends HTMLElement {
         ${background}
 
         <div class="content">
-          ${!online ? `<div class="topbar"><div class="brand"><span class="brand-icon">◈</span><span>ATLAS <span class="brand-cube">CUBE</span></span></div></div><div class="offline-icon"><ha-icon icon="mdi:wifi-off"></ha-icon></div><div class="offline-title">Radio AtlasCube</div><div class="offline-text">niedostępne w sieci</div>` : `<div class="topbar"><div class="brand ${webUrl ? "web" : ""}" id="brand" title="${webUrl ? "Otwórz panel AtlasCube" : ""}"><span class="brand-icon">◈</span><span>ATLAS <span class="brand-cube">CUBE</span></span></div>${stationLogoEnabled && stationLogo ? `<div class="station-logo-slot"><img class="station-logo" src="${this._escape(stationLogo)}" alt="" aria-hidden="true" onerror="this.parentElement.classList.add(&quot;empty&quot;);"></div>` : ""}</div><div class="station-name">${this._escape(station && station !== "unknown" && station !== "unavailable" ? station : "Radio internetowe")}</div>${artworkEnabled && playing ? `${image}<div class="artist">${this._escape(artist || "Nieznany wykonawca")}</div><div class="title">${this._escape(title)}</div>${album ? `<div class="album">${this._escape(album)}</div>` : ""}` : !artworkEnabled ? `${image}` : ""}`}
+          ${!online ? `<div class="topbar"><div class="brand"><span class="brand-icon">◈</span><span>ATLAS <span class="brand-cube">CUBE</span></span></div></div><div class="offline-icon"><ha-icon icon="mdi:wifi-off"></ha-icon></div><div class="offline-title">Radio AtlasCube</div><div class="offline-text">niedostępne w sieci</div>` : `<div class="topbar"><div class="brand ${webUrl ? "web" : ""}" id="brand" title="${webUrl ? "Otwórz panel AtlasCube" : ""}"><span class="brand-icon">◈</span><span>ATLAS <span class="brand-cube">CUBE</span></span></div></div>${stationLogoEnabled && stationLogo ? `<div class="station-logo-wrap"><img class="station-logo" src="${this._escape(stationLogo)}" alt="" aria-hidden="true" onerror="this.parentElement.classList.add(&quot;empty&quot;);"></div>` : ""}<div class="station-name">${this._escape(station && station !== "unknown" && station !== "unavailable" ? station : "Radio internetowe")}</div>${artworkEnabled && playing ? `${image}<div class="artist">${this._escape(artist || "Nieznany wykonawca")}</div><div class="title">${this._escape(title)}</div>${album ? `<div class="album">${this._escape(album)}</div>` : ""}` : !artworkEnabled ? `${image}` : ""}`}
           ${online ? `<div class="controls">
             <button class="skip" id="previous" aria-label="Poprzednia stacja">
               <ha-icon icon="mdi:skip-previous"></ha-icon>
