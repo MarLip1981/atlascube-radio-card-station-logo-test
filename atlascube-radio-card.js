@@ -183,7 +183,7 @@ class AtlasCubeRadioCard extends HTMLElement {
 
   _stationNameTokens(value) {
     return this._normalize(value)
-      .split(/\\s+/)
+      .split(/\s+/)
       .filter(token => token.length >= 2);
   }
 
@@ -296,53 +296,76 @@ class AtlasCubeRadioCard extends HTMLElement {
       return;
     }
 
-    // Zostawiamy widoczną nazwę stacji podczas szukania. Obszar ma stałą
-    // wysokość, więc wynik wyszukiwania nie powinien przesuwać reszty karty.
     this._stationLogo = { logo: null, loading: true };
     this._render();
 
     const token = String(this._config?.station_logo_token || "").trim();
+    const wanted = this._normalize(searchName);
+    const wantedTokens = this._stationNameTokens(searchName);
 
-    // Logo.dev ma osobny publiczny endpoint obrazów, który obsługuje wyszukiwanie
-    // po nazwie. Używamy klucza publishable (pk_), nigdy klucza sekretnego.
-    if (token.startsWith("pk_")) {
-      const directUrl = "https://img.logo.dev/name/" +
-        encodeURIComponent(searchName.trim().toLowerCase().split(" ").filter(Boolean).join("-")) +
-        "?token=" + encodeURIComponent(token) +
-        "&size=256&format=png&fallback=404";
-      const result = { logo: directUrl, station, source: "logo.dev" };
-      this._stationLogoCache.set(cacheKey, result);
-      if (requestId !== this._stationLogoRequestId) return;
-      this._stationLogo = result;
-      this._render();
-      return;
-    }
-
-    // Bez tokenu nie udajemy, że znaleźliśmy logo. Zachowujemy nazwę stacji
-    // i korzystamy z dokładnego dopasowania Radio Browser jako źródła awaryjnego.
     try {
+      // Wyszukiwanie po całej nazwie i filtrowanie kandydatów po wszystkich
+      // członach. Samo wspólne słowo (np. "Radio" albo "RMF") nie wystarczy.
       const encoded = encodeURIComponent(searchName);
-      const exactUrl = "https://de1.api.radio-browser.info/json/stations/bynameexact/" +
-        encoded + "?limit=50&order=votes&reverse=true";
-      const response = await fetch(exactUrl, { headers: { "Accept": "application/json" } });
+      const searchUrl = "https://de1.api.radio-browser.info/json/stations/search?name=" +
+        encoded + "&limit=100&order=votes&reverse=true";
+      const response = await fetch(searchUrl, { headers: { "Accept": "application/json" } });
       if (!response.ok) throw new Error("HTTP " + response.status);
       const data = await response.json();
-      const candidates = Array.isArray(data) ? data : [];
-      const exact = candidates.find(item =>
-        this._normalize(item?.name) === this._normalize(searchName) && item?.favicon
-      );
+      const candidates = (Array.isArray(data) ? data : [])
+        .filter(item => item?.favicon && item?.name)
+        .map(item => ({ item, normalized: this._normalize(item.name) }))
+        .map(entry => {
+          const candidateTokens = this._stationNameTokens(entry.item.name);
+          const allWantedWordsPresent = wantedTokens.length > 0 &&
+            wantedTokens.every(token => candidateTokens.some(candidateToken =>
+              candidateToken === token ||
+              (token.length >= 4 && candidateToken.length >= 4 &&
+                this._levenshtein(token, candidateToken) <= 1)
+            ));
+          const exact = entry.normalized === wanted;
+          const extraWords = Math.max(0, candidateTokens.length - wantedTokens.length);
+          const score = (exact ? 1000 : allWantedWordsPresent ? 500 : -1) -
+            extraWords * 5 + Math.min(20, (Number(entry.item.votes) || 0) / 100);
+          return { ...entry, exact, allWantedWordsPresent, score };
+        })
+        .filter(entry => entry.exact || entry.allWantedWordsPresent)
+        .sort((a, b) => b.score - a.score);
+
       if (requestId !== this._stationLogoRequestId) return;
-      const result = {
-        logo: exact?.favicon ? String(exact.favicon).replace(/^http:/i, "https:") : null,
-        station,
-        source: exact?.favicon ? "radio-browser" : "none"
-      };
+
+      let logo = candidates[0]?.item?.favicon
+        ? String(candidates[0].item.favicon).replace(/^http:/i, "https:")
+        : null;
+      let source = logo ? "radio-browser" : "none";
+
+      // Logo.dev często zgaduje na podstawie pierwszego słowa nazwy.
+      // Dlatego używamy go tylko dla nazw jednowyrazowych, gdzie ryzyko
+      // pomylenia dwóch podobnie nazwanych stacji jest mniejsze.
+      if (!logo && token.startsWith("pk_") && wantedTokens.length <= 1) {
+        logo = "https://img.logo.dev/name/" +
+          encodeURIComponent(searchName.trim().toLowerCase().split(/\s+/).filter(Boolean).join("-")) +
+          "?token=" + encodeURIComponent(token) +
+          "&size=256&format=png&fallback=404";
+        source = "logo.dev";
+      }
+
+      const result = { logo, station, source };
       this._stationLogoCache.set(cacheKey, result);
       this._stationLogo = result;
       this._render();
     } catch (error) {
       if (requestId !== this._stationLogoRequestId) return;
-      const result = { logo: null, station, source: "none", error: error?.message || "Nieznany błąd" };
+      let logo = null;
+      let source = "none";
+      if (token.startsWith("pk_") && wantedTokens.length <= 1) {
+        logo = "https://img.logo.dev/name/" +
+          encodeURIComponent(searchName.trim().toLowerCase().split(/\s+/).filter(Boolean).join("-")) +
+          "?token=" + encodeURIComponent(token) +
+          "&size=256&format=png&fallback=404";
+        source = "logo.dev";
+      }
+      const result = { logo, station, source, error: error?.message || "Nieznany błąd" };
       this._stationLogoCache.set(cacheKey, result);
       this._stationLogo = result;
       this._render();
@@ -587,8 +610,8 @@ class AtlasCubeRadioCard extends HTMLElement {
         .brand-cube { opacity:.58; }
         .brand.web { cursor:pointer; }
         .brand.web:active { transform:scale(.995); }
-        .station-logo-slot { flex:0 0 auto; max-width:44%; height:32px; display:flex; align-items:center; justify-content:flex-end; overflow:hidden; }
-        .station-logo { display:block; max-width:100%; max-height:30px; width:auto; height:auto; object-fit:contain; filter:drop-shadow(0 2px 6px rgba(0,0,0,.24)); }
+        .station-logo-slot { flex:0 0 auto; max-width:48%; height:38px; display:flex; align-items:center; justify-content:flex-end; overflow:hidden; }
+        .station-logo { display:block; max-width:100%; max-height:36px; width:auto; height:auto; object-fit:contain; filter:drop-shadow(0 2px 6px rgba(0,0,0,.24)); }
         .station-logo-slot.empty { display:none; }
         .station-name { width:100%; margin:0 0 10px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:20px; line-height:1.25; font-weight:700; letter-spacing:.025em; opacity:.96; overflow-wrap:anywhere; box-sizing:border-box; }
 
