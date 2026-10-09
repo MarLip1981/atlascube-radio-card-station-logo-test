@@ -178,7 +178,41 @@ class AtlasCubeRadioCard extends HTMLElement {
 
   _stationLogoQueryName(value) {
     const key = this._stationLogoKey(value);
-    return key === "rmf maxx" ? "RMF MAXX" : String(value || "").trim();
+    const aliases = {
+      "jedynka": "Polskie Radio Program 1",
+      "polskie radio jedynka": "Polskie Radio Program 1",
+      "polskie radio program 1": "Polskie Radio Program 1",
+      "program 1": "Polskie Radio Program 1",
+      "dwojka": "Polskie Radio Program 2",
+      "polskie radio dwojka": "Polskie Radio Program 2",
+      "polskie radio program 2": "Polskie Radio Program 2",
+      "program 2": "Polskie Radio Program 2",
+      "trojka": "Polskie Radio Program 3",
+      "polskie radio trojka": "Polskie Radio Program 3",
+      "polskie radio program 3": "Polskie Radio Program 3",
+      "program 3": "Polskie Radio Program 3"
+    };
+    if (key === "rmf maxxx") return "RMF MAXX";
+    return aliases[key] || String(value || "").trim();
+  }
+
+  _stationLogoSearchNames(value) {
+    const key = this._stationLogoKey(value);
+    const aliases = {
+      "jedynka": ["Polskie Radio Program 1", "Polskie Radio Jedynka", "Jedynka", "Program 1"],
+      "polskie radio jedynka": ["Polskie Radio Program 1", "Polskie Radio Jedynka", "Jedynka", "Program 1"],
+      "polskie radio program 1": ["Polskie Radio Program 1", "Polskie Radio Jedynka", "Jedynka", "Program 1"],
+      "program 1": ["Polskie Radio Program 1", "Polskie Radio Jedynka", "Jedynka", "Program 1"],
+      "dwojka": ["Polskie Radio Program 2", "Polskie Radio Dwójka", "Dwójka", "Program 2"],
+      "polskie radio dwojka": ["Polskie Radio Program 2", "Polskie Radio Dwójka", "Dwójka", "Program 2"],
+      "polskie radio program 2": ["Polskie Radio Program 2", "Polskie Radio Dwójka", "Dwójka", "Program 2"],
+      "program 2": ["Polskie Radio Program 2", "Polskie Radio Dwójka", "Dwójka", "Program 2"],
+      "trojka": ["Polskie Radio Program 3", "Polskie Radio Trójka", "Trójka", "Program 3"],
+      "polskie radio trojka": ["Polskie Radio Program 3", "Polskie Radio Trójka", "Trójka", "Program 3"],
+      "polskie radio program 3": ["Polskie Radio Program 3", "Polskie Radio Trójka", "Trójka", "Program 3"],
+      "program 3": ["Polskie Radio Program 3", "Polskie Radio Trójka", "Trójka", "Program 3"]
+    };
+    return aliases[key] || [this._stationLogoQueryName(value)];
   }
 
   _stationNameTokens(value) {
@@ -281,7 +315,8 @@ class AtlasCubeRadioCard extends HTMLElement {
   async _loadStationLogo() {
     const station = this._getStation();
     const requestId = ++this._stationLogoRequestId;
-    const searchName = this._stationLogoQueryName(station);
+    const searchNames = this._stationLogoSearchNames(station);
+    const searchName = searchNames[0] || this._stationLogoQueryName(station);
 
     if (!station) {
       this._stationLogo = null;
@@ -300,36 +335,57 @@ class AtlasCubeRadioCard extends HTMLElement {
     this._render();
 
     const token = String(this._config?.station_logo_token || "").trim();
-    const wanted = this._normalize(searchName);
-    const wantedTokens = this._stationNameTokens(searchName);
+    const normalizedQueries = searchNames.map(name => ({
+      name,
+      normalized: this._normalize(name),
+      tokens: this._stationNameTokens(name)
+    }));
 
     try {
-      // Wyszukiwanie po całej nazwie i filtrowanie kandydatów po wszystkich
-      // członach. Samo wspólne słowo (np. "Radio" albo "RMF") nie wystarczy.
-      const encoded = encodeURIComponent(searchName);
-      const searchUrl = "https://de1.api.radio-browser.info/json/stations/search?name=" +
-        encoded + "&limit=100&order=votes&reverse=true";
-      const response = await fetch(searchUrl, { headers: { "Accept": "application/json" } });
-      if (!response.ok) throw new Error("HTTP " + response.status);
-      const data = await response.json();
-      const candidates = (Array.isArray(data) ? data : [])
+      const allCandidates = [];
+      // Wykonujemy osobne zapytania dla aliasów: np. „Jedynka” może
+      // być opisana w katalogu jako „Polskie Radio Program 1” albo odwrotnie.
+      for (const queryName of searchNames) {
+        const encoded = encodeURIComponent(queryName);
+        const searchUrl = "https://de1.api.radio-browser.info/json/stations/search?name=" +
+          encoded + "&limit=100&order=votes&reverse=true";
+        const response = await fetch(searchUrl, { headers: { "Accept": "application/json" } });
+        if (!response.ok) continue;
+        const data = await response.json();
+        if (Array.isArray(data)) allCandidates.push(...data);
+        if (requestId !== this._stationLogoRequestId) return;
+      }
+
+      const seen = new Set();
+      const candidates = allCandidates
         .filter(item => item?.favicon && item?.name)
-        .map(item => ({ item, normalized: this._normalize(item.name) }))
-        .map(entry => {
-          const candidateTokens = this._stationNameTokens(entry.item.name);
-          const allWantedWordsPresent = wantedTokens.length > 0 &&
-            wantedTokens.every(token => candidateTokens.some(candidateToken =>
-              candidateToken === token ||
-              (token.length >= 4 && candidateToken.length >= 4 &&
-                this._levenshtein(token, candidateToken) <= 1)
-            ));
-          const exact = entry.normalized === wanted;
-          const extraWords = Math.max(0, candidateTokens.length - wantedTokens.length);
-          const score = (exact ? 1000 : allWantedWordsPresent ? 500 : -1) -
-            extraWords * 5 + Math.min(20, (Number(entry.item.votes) || 0) / 100);
-          return { ...entry, exact, allWantedWordsPresent, score };
+        .filter(item => {
+          const id = this._normalize(item.name) + "|" + String(item.favicon);
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return true;
         })
-        .filter(entry => entry.exact || entry.allWantedWordsPresent)
+        .map(item => {
+          const normalized = this._normalize(item.name);
+          const candidateTokens = this._stationNameTokens(item.name);
+          let bestMatch = null;
+          for (const query of normalizedQueries) {
+            const allWordsPresent = query.tokens.length > 0 &&
+              query.tokens.every(token => candidateTokens.some(candidateToken =>
+                candidateToken === token ||
+                (token.length >= 4 && candidateToken.length >= 4 &&
+                  this._levenshtein(token, candidateToken) <= 1)
+              ));
+            const exact = normalized === query.normalized;
+            if (!exact && !allWordsPresent) continue;
+            const extraWords = Math.max(0, candidateTokens.length - query.tokens.length);
+            const score = (exact ? 1000 : 500) - extraWords * 5 +
+              Math.min(20, (Number(item.votes) || 0) / 100);
+            if (!bestMatch || score > bestMatch.score) bestMatch = { exact, score };
+          }
+          return { item, ...bestMatch };
+        })
+        .filter(entry => entry.score !== undefined)
         .sort((a, b) => b.score - a.score);
 
       if (requestId !== this._stationLogoRequestId) return;
@@ -339,12 +395,11 @@ class AtlasCubeRadioCard extends HTMLElement {
         : null;
       let source = logo ? "radio-browser" : "none";
 
-      // Logo.dev często zgaduje na podstawie pierwszego słowa nazwy.
-      // Dlatego używamy go tylko dla nazw jednowyrazowych, gdzie ryzyko
-      // pomylenia dwóch podobnie nazwanych stacji jest mniejsze.
-      if (!logo && token.startsWith("pk_") && wantedTokens.length <= 1) {
+      // Logo.dev pozostaje ograniczone do nazw jednowyrazowych, bo dla nazw
+      // wieloczłonowych jego dopasowanie potrafi zwracać niewłaściwą rozgłośnię.
+      if (!logo && token.startsWith("pk_") && this._stationNameTokens(station).length <= 1) {
         logo = "https://img.logo.dev/name/" +
-          encodeURIComponent(searchName.trim().toLowerCase().split(/\s+/).filter(Boolean).join("-")) +
+          encodeURIComponent(station.trim().toLowerCase().split(/\s+/).filter(Boolean).join("-")) +
           "?token=" + encodeURIComponent(token) +
           "&size=256&format=png&fallback=404";
         source = "logo.dev";
@@ -358,9 +413,9 @@ class AtlasCubeRadioCard extends HTMLElement {
       if (requestId !== this._stationLogoRequestId) return;
       let logo = null;
       let source = "none";
-      if (token.startsWith("pk_") && wantedTokens.length <= 1) {
+      if (token.startsWith("pk_") && this._stationNameTokens(station).length <= 1) {
         logo = "https://img.logo.dev/name/" +
-          encodeURIComponent(searchName.trim().toLowerCase().split(/\s+/).filter(Boolean).join("-")) +
+          encodeURIComponent(station.trim().toLowerCase().split(/\s+/).filter(Boolean).join("-")) +
           "?token=" + encodeURIComponent(token) +
           "&size=256&format=png&fallback=404";
         source = "logo.dev";
