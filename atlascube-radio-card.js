@@ -372,7 +372,8 @@ class AtlasCubeRadioCard extends HTMLElement {
     const direct = this._stationLogoCommonsDirect(station);
     if (direct) return { logo: direct, source: "wikimedia-commons" };
 
-    const searchNames = this._stationLogoSearchNames(station);
+    try {
+      const searchNames = this._stationLogoSearchNames(station);
     for (const name of searchNames) {
       const query = encodeURIComponent(name + " radio logo");
       const url = "https://commons.wikimedia.org/w/api.php?action=query&generator=search" +
@@ -411,7 +412,11 @@ class AtlasCubeRadioCard extends HTMLElement {
         };
       }
     }
-    return null;
+      return null;
+    } catch (error) {
+      console.warn("AtlasCube Radio Card: Wikimedia Commons niedostępne, używam źródła zapasowego.", error);
+      return null;
+    }
   }
 
   async _loadStationLogo() {
