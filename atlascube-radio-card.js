@@ -581,44 +581,18 @@ class AtlasCubeRadioCard extends HTMLElement {
         .offline-title { font-size:17px; font-weight:700; }
         .offline-text { font-size:13px; opacity:.65; margin-top:4px; }
 
-        .brand { display:flex; align-items:center; justify-content:center; gap:7px; margin-bottom:5px; font-size:17px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; opacity:.9; }
-        .brand-icon { font-size:20px; line-height:1; }
+        .topbar { width:100%; min-height:42px; display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:10px; box-sizing:border-box; }
+        .brand { display:flex; align-items:center; justify-content:flex-start; gap:7px; margin:0; font-size:16px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; opacity:.94; flex:1 1 auto; min-width:0; }
+        .brand-icon { font-size:22px; line-height:1; }
         .brand-cube { opacity:.58; }
         .brand.web { cursor:pointer; }
         .brand.web:active { transform:scale(.995); }
+        .station-logo-slot { flex:0 0 116px; width:116px; height:42px; display:flex; align-items:center; justify-content:flex-end; overflow:hidden; }
+        .station-logo { display:block; max-width:112px; max-height:40px; width:auto; height:auto; object-fit:contain; filter:drop-shadow(0 2px 6px rgba(0,0,0,.24)); }
+        .station-logo-slot.empty { display:none; }
+        .station-name { width:100%; min-height:34px; margin:4px 0 14px; display:flex; align-items:center; justify-content:center; text-align:center; font-size:17px; line-height:1.25; font-weight:700; letter-spacing:.025em; opacity:.94; overflow-wrap:anywhere; box-sizing:border-box; }
 
-        .station {
-          margin-bottom: 12px;
-          font-size: 14px;
-          font-weight: 600;
-          letter-spacing: .04em;
-          opacity: .82;
-          text-align: center;
-        }
-
-        .station-identity {
-          min-height: 72px;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          box-sizing: border-box;
-        }
-        .station-logo-fallback { display: none; }
-        .station-logo-fallback-visible { display: block; }
-        .station-identity-text { min-height: 72px; display:flex; align-items:center; justify-content:center; }
-        .station-logo {
-          display:block;
-          max-width:160px;
-          max-height:64px;
-          width:auto;
-          height:auto;
-          object-fit:contain;
-          margin:0 auto;
-          filter:drop-shadow(0 4px 12px rgba(0,0,0,.30));
-        }
-
-        .cover,
+                .cover,
         .no-cover {
           width: 200px;
           height: 200px;
