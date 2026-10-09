@@ -353,7 +353,7 @@ class AtlasCubeRadioCard extends HTMLElement {
   _stationLogoCommonsDirect(station) {
     const key = this._stationLogoKey(station);
     const files = {
-      "rmf fm": "RMF FM logo.svg",
+      "rmf fm": "RMF FM logotyp 2022.png",
       "rmf maxx": "Logo RMF MAXX.png",
       "rmf classic": "RMF CLASSIC - logotyp.png",
       "radio zet": "Radio ZET logo.png",
