@@ -210,6 +210,10 @@ class AtlasCubeRadioCard extends HTMLElement {
     // RMF MAXXX to historyczna pisownia tej samej stacji co obecne RMF MAXX.
     if (key === "rmf maxxx") return "rmf maxx";
 
+    // Ujednolicamy warianty nazwy kanału RMF Polskie Przeboje.
+    if (key === "polskie przeboje" || key === "rmf polskie przeboje" ||
+        key === "rmf polskie przeboje radio") return "rmf polskie przeboje";
+
     // Ujednolicamy także pełne nazwy programów Polskiego Radia,
     // np. „Polskie Radio Program 1 (Jedynka)”, do jednego klucza.
     if (/\b(jedynka|program 1)\b/.test(key)) return "polskie radio program 1";
@@ -237,12 +241,18 @@ class AtlasCubeRadioCard extends HTMLElement {
     if (key === "rmf maxx") return "RMF MAXX";
     if (key === "rmf fm") return "RMF FM";
     if (key === "rmf classic") return "RMF CLASSIC";
+    if (key === "rmf polskie przeboje") return "RMF Polskie Przeboje";
     return aliases[key] || String(value || "").trim();
   }
 
   _stationLogoSearchNames(value) {
     const key = this._stationLogoKey(value);
     const aliases = {
+      "rmf polskie przeboje": [
+        "RMF Polskie Przeboje",
+        "Polskie Przeboje RMF",
+        "Polskie Przeboje"
+      ],
       "jedynka": ["Polskie Radio Program 1"],
       "polskie radio jedynka": ["Polskie Radio Program 1"],
       "polskie radio program 1": ["Polskie Radio Program 1"],
