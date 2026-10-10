@@ -249,8 +249,10 @@ class AtlasCubeRadioCard extends HTMLElement {
   _stationLogoSearchNames(value) {
     const key = this._stationLogoKey(value);
     const aliases = {
+      "rmf maxx": ["RMF MAXX", "RMF MAXXX"],
       "rmf polskie przeboje": [
         "RMF Polskie Przeboje",
+        "RMF Polskie Przeboje radio",
         "Polskie Przeboje RMF",
         "Polskie Przeboje"
       ],
@@ -337,10 +339,9 @@ class AtlasCubeRadioCard extends HTMLElement {
     // Rozróżniamy podmarki RMF. Sam wspólny człon „RMF” nigdy nie wystarcza.
     const rmfVariants = ["fm", "maxx", "classic", "on", "24"];
     const wantedRmf = wantedKey.match(/^rmf (fm|maxx|classic|on|24)$/)?.[1];
-    if (wantedRmf && /\brmf\s+(fm|maxx|classic|on|24)\b/.test(candidateText)) {
-      const candidateRmf = candidateText.match(/\brmf\s+(fm|maxx|classic|on|24)\b/)?.[1];
-      if (candidateRmf && candidateRmf !== wantedRmf) return true;
-    }
+    const candidateRmfMatch = candidateText.match(/\brmf\s+(fm|maxxx|maxx|classic|on|24)\b/);
+    const candidateRmf = candidateRmfMatch?.[1] === "maxxx" ? "maxx" : candidateRmfMatch?.[1];
+    if (wantedRmf && candidateRmf && candidateRmf !== wantedRmf) return true;
 
     // Polskie Radio: Program 1/2/3 oraz Jedynka/Dwójka/Trójka to odrębne marki.
     const wantedProgram = wantedKey.match(/^polskie radio program ([123])$/)?.[1];
@@ -536,7 +537,14 @@ class AtlasCubeRadioCard extends HTMLElement {
       // w Wikimedia Commons. Nie pozwalamy, by luźny wynik Commons wyprzedził
       // oficjalnie przypisany favicon stacji.
       if (!result?.logo) {
-        result = await this._findCommonsStationLogo(station, requestId);
+        const stationKey = this._stationLogoKey(station);
+        const isRmfSubbrand = /^rmf (fm|maxx|classic|on|24)$/.test(stationKey);
+        // Commons can return a logo for a sibling RMF channel. For RMF
+        // sub-brands, a missing verified Radio Browser match is safer than
+        // displaying the wrong channel logo.
+        if (!isRmfSubbrand) {
+          result = await this._findCommonsStationLogo(station, requestId);
+        }
       }
 
       if (requestId !== this._stationLogoRequestId) return;
