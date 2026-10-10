@@ -230,7 +230,9 @@ class AtlasCubeRadioCard extends HTMLElement {
       "polskie radio program 3": "Polskie Radio Program 3",
       "program 3": "Polskie Radio Program 3"
     };
-    if (key === "rmf maxxx") return "RMF MAXX";
+    if (key === "rmf maxx") return "RMF MAXX";
+    if (key === "rmf fm") return "RMF FM";
+    if (key === "rmf classic") return "RMF CLASSIC";
     return aliases[key] || String(value || "").trim();
   }
 
