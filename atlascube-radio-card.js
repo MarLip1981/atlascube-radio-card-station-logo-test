@@ -583,12 +583,13 @@ class AtlasCubeRadioCard extends HTMLElement {
           "&hidebroken=true&limit=20"
         );
         if (requestId !== this._stationLogoRequestId) return;
-        const wantedKey = this._stationLogoKey(station);
-        const exactStreamMatches = byUrl
-          .filter(item => item?.name && item?.favicon)
-          .filter(item => this._stationLogoKey(item.name) === wantedKey)
-          .sort((a, b) => (Number(b.votes) || 0) - (Number(a.votes) || 0));
-        const exact = exactStreamMatches[0];
+        // Tak jak w oryginalnym AtlasCube: wynik po URL jest podstawowy.
+        // Nie odrzucamy go tylko dlatego, że Radio Browser ma inną pisownię nazwy
+        // niż lista AtlasCube. Bierzemy najpopularniejszy wynik z dostępnym favicon.
+        const streamMatches = byUrl
+          .filter(item => item?.favicon)
+          .sort((a, b) => (Number(b.clickcount) || 0) - (Number(a.clickcount) || 0));
+        const exact = streamMatches[0];
         if (exact?.favicon) {
           result = {
             logo: String(exact.favicon).replace(/^http:/i, "https:"),
@@ -599,12 +600,31 @@ class AtlasCubeRadioCard extends HTMLElement {
         }
       }
 
-      // Gdy URL nie ma wiarygodnego rekordu z logo, dopiero wtedy szukamy po nazwie.
+      // Zgodnie z oryginalnym AtlasCube: jeśli URL nie dał żadnego favicon,
+      // najpierw sprawdzamy dokładną nazwę stacji. Dopiero potem szersze aliasy.
       const searchNames = this._stationLogoSearchNames(station);
+        let exactNameMatches = [];
+        if (!result?.logo) {
+          exactNameMatches = await this._stationLogoRadioBrowserGet(
+            "/json/stations/bynameexact/" + encodeURIComponent(station) +
+            "?hidebroken=true&limit=20"
+          );
+          exactNameMatches = exactNameMatches
+            .filter(item => item?.favicon)
+            .sort((a, b) => (Number(b.clickcount) || 0) - (Number(a.clickcount) || 0));
+          if (exactNameMatches[0]?.favicon) {
+            const exactName = exactNameMatches[0];
+            result = {
+              logo: String(exactName.favicon).replace(/^http:/i, "https:"),
+              source: "radio-browser-exact-name",
+              matchedName: exactName.name
+            };
+          }
+        }
         const responses = result?.logo ? [] : await Promise.all(searchNames.map(async queryName =>
           this._stationLogoRadioBrowserGet(
             "/json/stations/search?name=" + encodeURIComponent(queryName) +
-            "&limit=100&order=votes&reverse=true"
+            "&limit=100&order=clickcount&reverse=true"
           )
         ));
         if (requestId !== this._stationLogoRequestId) return;
