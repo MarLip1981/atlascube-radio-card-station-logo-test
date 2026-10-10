@@ -529,7 +529,6 @@ class AtlasCubeRadioCard extends HTMLElement {
           const logo = String(best.favicon).replace(/^http:/i, "https:");
           result = { logo, source: "radio-browser", matchedName: best.name };
         }
-      }
 
       if (requestId !== this._stationLogoRequestId) return;
 
