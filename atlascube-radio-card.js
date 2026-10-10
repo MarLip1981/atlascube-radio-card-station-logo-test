@@ -210,9 +210,10 @@ class AtlasCubeRadioCard extends HTMLElement {
     // RMF MAXXX to historyczna pisownia tej samej stacji co obecne RMF MAXX.
     if (key === "rmf maxxx") return "rmf maxx";
 
-    // Ujednolicamy warianty nazwy kanału RMF Polskie Przeboje.
-    if (key === "polskie przeboje" || key === "rmf polskie przeboje" ||
-        key === "rmf polskie przeboje radio") return "rmf polskie przeboje";
+    // AtlasCube może zwracać nazwę z dodatkowym prefiksem „Radio”.
+    // Każda nazwa zawierająca markę „Polskie Przeboje” trafia do wspólnego
+    // klucza; logo i tak musi pochodzić z wyniku Radio Browser z favicon.
+    if (key.includes("polskie przeboje")) return "rmf polskie przeboje";
 
     // Ujednolicamy także pełne nazwy programów Polskiego Radia,
     // np. „Polskie Radio Program 1 (Jedynka)”, do jednego klucza.
@@ -487,12 +488,11 @@ class AtlasCubeRadioCard extends HTMLElement {
     this._render();
 
     try {
-      let result = await this._findCommonsStationLogo(station, requestId);
-      if (requestId !== this._stationLogoRequestId) return;
+      // Radio Browser jest źródłem pierwszego wyboru: rekord stacji może
+      // już zawierać właściwe logo w polu favicon. Wikimedia jest rezerwą.
+      let result = null;
 
-      // Radio Browser jest rezerwą. Zapytania wykonujemy równolegle, a każdy
-      // kandydat przechodzi ten sam rygorystyczny scoring i kontrolę wariantu.
-      if (!result?.logo) {
+      // Najpierw katalog Radio Browser.
         const searchNames = this._stationLogoSearchNames(station);
         const responses = await Promise.all(searchNames.map(async queryName => {
           const url = "https://de1.api.radio-browser.info/json/stations/search?name=" +
@@ -529,6 +529,15 @@ class AtlasCubeRadioCard extends HTMLElement {
           const logo = String(best.favicon).replace(/^http:/i, "https:");
           result = { logo, source: "radio-browser", matchedName: best.name };
         }
+      }
+
+      if (requestId !== this._stationLogoRequestId) return;
+
+      // Dopiero gdy Radio Browser nie zwrócił wiarygodnego logo, szukamy
+      // w Wikimedia Commons. Nie pozwalamy, by luźny wynik Commons wyprzedził
+      // oficjalnie przypisany favicon stacji.
+      if (!result?.logo) {
+        result = await this._findCommonsStationLogo(station, requestId);
       }
 
       if (requestId !== this._stationLogoRequestId) return;
