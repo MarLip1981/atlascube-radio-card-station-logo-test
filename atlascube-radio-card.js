@@ -303,6 +303,37 @@ class AtlasCubeRadioCard extends HTMLElement {
     return streams[this._stationLogoKey(value)] || streams[this._normalize(value)] || null;
   }
 
+  async _stationLogoStreamUrlFromDevice(value) {
+    // Najpierw czytamy prawdziwą playlistę z urządzenia AtlasCube.
+    // Firmware udostępnia GET /api/playlist i włącza CORS.
+    // Dopasowanie jest kanoniczne, bez luźnego podobieństwa nazw.
+    const wantedKey = this._stationLogoKey(value);
+    const webUrl = this._webUrl();
+    if (webUrl) {
+      try {
+        let baseUrl = String(webUrl).trim();
+        while (baseUrl.endsWith("/")) baseUrl = baseUrl.slice(0, -1);
+        const response = await fetch(baseUrl + "/api/playlist", {
+          cache: "no-store",
+          headers: { "Accept": "application/json" }
+        });
+        if (response.ok) {
+          const playlist = await response.json();
+          if (Array.isArray(playlist)) {
+            const match = playlist.find(item =>
+              item?.name && item?.url &&
+              this._stationLogoKey(item.name) === wantedKey
+            );
+            if (match?.url) return String(match.url).trim();
+          }
+        }
+      } catch (_) {
+        // Jeśli urządzenie nie odpowiada, próbujemy znane URL-e z repozytorium.
+      }
+    }
+    return this._stationLogoStreamUrl(value);
+  }
+
   async _stationLogoRadioBrowserGet(path) {
     const hosts = [
       "all.api.radio-browser.info",
@@ -545,7 +576,7 @@ class AtlasCubeRadioCard extends HTMLElement {
       // z adresu streamu z domyślnej playlisty AtlasCube, bo URL identyfikuje
       // stację pewniej niż podobieństwo nazw (np. różne kanały RMF).
       let result = null;
-      const streamUrl = this._stationLogoStreamUrl(station);
+      const streamUrl = await this._stationLogoStreamUrlFromDevice(station);
       if (streamUrl) {
         const byUrl = await this._stationLogoRadioBrowserGet(
           "/json/stations/byurl?url=" + encodeURIComponent(streamUrl) +
