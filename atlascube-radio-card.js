@@ -59,6 +59,10 @@ class AtlasCubeRadioCard extends HTMLElement {
     if (station !== this._lastStation) {
       this._lastStation = station;
       if (this._config.show_station_logo !== false) this._loadStationLogo();
+    } else if (station && this._config.show_station_logo !== false &&
+        this._stationLogo && !this._stationLogo.logo && !this._stationLogo.loading &&
+        this._stationLogo.retryAt && Date.now() >= this._stationLogo.retryAt) {
+      this._loadStationLogo();
     }
     const signature = this._renderStateSignature();
     if (signature !== this._lastRenderSignature) {
@@ -315,40 +319,56 @@ class AtlasCubeRadioCard extends HTMLElement {
     return matched / wantedTokens.length;
   }
 
+  _stationLogoHasConflictingVariant(wanted, candidate) {
+    const wantedKey = this._stationLogoKey(wanted);
+    const candidateText = this._normalize(candidate);
+
+    // Rozróżniamy podmarki RMF. Sam wspólny człon „RMF” nigdy nie wystarcza.
+    const rmfVariants = ["fm", "maxx", "classic", "on", "24"];
+    const wantedRmf = wantedKey.match(/^rmf (fm|maxx|classic|on|24)$/)?.[1];
+    if (wantedRmf && /\brmf\s+(fm|maxx|classic|on|24)\b/.test(candidateText)) {
+      const candidateRmf = candidateText.match(/\brmf\s+(fm|maxx|classic|on|24)\b/)?.[1];
+      if (candidateRmf && candidateRmf !== wantedRmf) return true;
+    }
+
+    // Polskie Radio: Program 1/2/3 oraz Jedynka/Dwójka/Trójka to odrębne marki.
+    const wantedProgram = wantedKey.match(/^polskie radio program ([123])$/)?.[1];
+    const candidateProgram = candidateText.match(/\bprogram ([123])\b/)?.[1];
+    const candidateAlias = /\b(jedynka|dwojka|trojka)\b/.exec(candidateText)?.[1];
+    const aliasProgram = candidateAlias === "jedynka" ? "1"
+      : candidateAlias === "dwojka" ? "2"
+      : candidateAlias === "trojka" ? "3" : null;
+    if (wantedProgram && ((candidateProgram && candidateProgram !== wantedProgram) ||
+        (aliasProgram && aliasProgram !== wantedProgram))) return true;
+
+    return false;
+  }
+
   _stationLogoScore(result, wanted) {
     const name = String(result?.name || "").trim();
-    if (!name || !result?.favicon) return -1;
+    if (!name || !result?.favicon || this._stationLogoHasConflictingVariant(wanted, name)) return -1;
 
     const normalizedWanted = this._normalize(wanted);
     const normalizedName = this._normalize(name);
-
     if (!normalizedWanted || !normalizedName) return -1;
 
-    // Najważniejsze: dokładna nazwa ma absolutne pierwszeństwo.
-    if (normalizedName === normalizedWanted) {
-      return 1000 + Math.min(100, Number(result?.votes) || 0) / 100;
+    const wantedKey = this._stationLogoKey(wanted);
+    const candidateKey = this._stationLogoKey(name);
+    // Nazwa kanoniczna (np. RMF MAXXX/RMF MAXX albo Jedynka/Program 1)
+    // ma pierwszeństwo, ale tylko po wykluczeniu kolidujących wariantów.
+    if (candidateKey === wantedKey) {
+      return 1000 + Math.min(20, (Number(result?.votes) || 0) / 100);
     }
 
     const wantedTokens = this._stationNameTokens(wanted);
     const candidateTokens = this._stationNameTokens(name);
-
-    // Nie pozwalamy, aby samo "RMF" dopasowało np. RMF ON do RMF MAXX.
-    // Każdy istotny człon nazwy użytkownika musi mieć bardzo podobny
-    // odpowiednik w nazwie znalezionej stacji.
     const similarity = this._stationNameSimilarity(wanted, name);
     if (similarity < 0.999) return -1;
 
     let score = 500 + similarity * 100;
-
-    // Lekko preferujemy polskie stacje, ale dopiero po poprawnym dopasowaniu nazwy.
     if (String(result?.countrycode || "").toUpperCase() === "PL") score += 20;
-
-    // Więcej głosów = preferowany wariant logo spośród równoważnych nazw.
     score += Math.min(20, (Number(result?.votes) || 0) / 100);
-
-    // Nazwa z mniejszą liczbą dodatkowych słów jest lepszym odpowiednikiem.
     score -= Math.max(0, candidateTokens.length - wantedTokens.length) * 3;
-
     return score;
   }
 
@@ -362,62 +382,71 @@ class AtlasCubeRadioCard extends HTMLElement {
   async _findCommonsStationLogo(station, requestId) {
     try {
       const searchNames = this._stationLogoSearchNames(station);
-      const wantedTokens = this._stationNameTokens(this._stationLogoQueryName(station));
-      if (!wantedTokens.length) return null;
+      const wantedKey = this._stationLogoKey(station);
+      const queries = [...new Set(searchNames.flatMap(name => [name, name + " logo"]))].slice(0, 8);
 
-      // Szukamy po nazwie stacji i po typowych opisach plików.
-      // Nie wymagamy, by słowa „logo” lub „radio” występowały w nazwie pliku.
-      const queries = [...new Set(searchNames.flatMap(name => [
-        name,
-        name + " logo",
-        name + " logotyp"
-      ]))];
-      const allPages = new Map();
-
-      for (const query of queries) {
+      // Wykonujemy niezależne zapytania równolegle, aby Commons nie blokował
+      // przez kilka kolejnych opóźnień odpowiedzi.
+      const responses = await Promise.all(queries.map(async query => {
         const url = "https://commons.wikimedia.org/w/api.php?action=query&generator=search" +
           "&gsrsearch=" + encodeURIComponent(query) +
           "&gsrnamespace=6&gsrlimit=20&prop=imageinfo&iiprop=url&iiurlwidth=500&format=json&origin=*";
-        const response = await fetch(url, { headers: { "Accept": "application/json" } });
-        if (!response.ok) continue;
-        const data = await response.json();
-        if (requestId !== this._stationLogoRequestId) return null;
-        for (const page of Object.values(data?.query?.pages || {})) {
-          if (page?.pageid != null) allPages.set(String(page.pageid), page);
+        try {
+          const response = await fetch(url, { headers: { "Accept": "application/json" } });
+          if (!response.ok) return [];
+          const data = await response.json();
+          return Object.values(data?.query?.pages || {});
+        } catch (_) {
+          return [];
         }
+      }));
+      if (requestId !== this._stationLogoRequestId) return null;
+
+      const allPages = new Map();
+      for (const page of responses.flat()) {
+        if (page?.pageid != null) allPages.set(String(page.pageid), page);
       }
 
-      const wantedKey = this._stationLogoKey(station);
+      const wantedAliases = searchNames.map(name => ({
+        name,
+        tokens: this._stationNameTokens(name),
+        normalized: this._normalize(name)
+      })).filter(alias => alias.tokens.length);
+
       const candidates = [...allPages.values()].map(page => {
         const title = String(page.title || "").replace(/^File:/i, "");
         const normalizedTitle = this._normalize(title);
         const titleTokens = this._stationNameTokens(title);
-        const hasAllBrandTokens = wantedTokens.every(token =>
-          titleTokens.some(candidate => candidate === token ||
-            (token.length >= 5 && candidate.length >= 5 && this._levenshtein(token, candidate) <= 1))
-        );
-        const hasConflictingVariant =
-          (wantedKey === "rmf fm" && /\brmf (maxx|classic|on|24)\b/.test(normalizedTitle)) ||
-          (wantedKey === "rmf maxx" && /\brmf (fm|classic|on|24)\b/.test(normalizedTitle)) ||
-          (wantedKey === "rmf classic" && /\brmf (fm|maxx|on|24)\b/.test(normalizedTitle));
-        const logoTerms = /logo|logotyp|logotype|loga|znak graficzny|brand/i.test(title);
-        const photoTerms = /\b(photo|fotografia|zdjecie|samochod|studio|nadajnik|siedziba|budynek|osoba)\b/i.test(normalizedTitle);
         const image = page.imageinfo?.[0]?.thumburl || page.imageinfo?.[0]?.url || "";
-        let score = 0;
-        if (hasAllBrandTokens) score += 100;
-        if (logoTerms) score += 35;
-        if (normalizedTitle.startsWith(this._normalize(this._stationLogoQueryName(station)))) score += 20;
-        if (titleTokens.length <= wantedTokens.length + 4) score += 5;
-        if (photoTerms) score -= 100;
-        if (hasConflictingVariant) score -= 250;
-        if (/\b(old|obsolete|historic|history|stare logo|dawne logo|wersja testowa)\b/i.test(normalizedTitle)) score -= 20;
-        if (!image) score = -1;
-        return { image, score, hasAllBrandTokens, hasConflictingVariant };
-      }).filter(item => item.score >= 100 && item.hasAllBrandTokens && !item.hasConflictingVariant)
-        .sort((a, b) => b.score - a.score);
+        if (!image || this._stationLogoHasConflictingVariant(station, title)) return null;
+
+        const aliasMatch = wantedAliases.some(alias =>
+          alias.tokens.every(token => titleTokens.includes(token) ||
+            (token.length >= 5 && titleTokens.some(candidate =>
+              candidate.length >= 5 && this._levenshtein(token, candidate) === 1)))
+        );
+        if (!aliasMatch) return null;
+
+        const logoTerms = /\b(logo|logotyp|logotype|loga|brand|znak graficzny)\b/i.test(normalizedTitle);
+        const photoTerms = /\b(photo|fotografia|zdjecie|samochod|studio|nadajnik|siedziba|budynek|osoba|mapa|map)\b/i.test(normalizedTitle);
+        const obsoleteTerms = /\b(old|obsolete|historic|history|stare logo|dawne logo|wersja testowa)\b/i.test(normalizedTitle);
+        const startsWithBrand = wantedAliases.some(alias => normalizedTitle.startsWith(alias.normalized));
+        const compactTitle = titleTokens.length <= Math.min(...wantedAliases.map(alias => alias.tokens.length)) + 3;
+
+        // Nie akceptujemy samego podobieństwa nazwy: wynik musi wyglądać
+        // na plik logo albo mieć bardzo zwięzłą nazwę zaczynającą się od marki.
+        if (photoTerms || (!logoTerms && !(startsWithBrand && compactTitle))) return null;
+
+        let score = 100;
+        if (logoTerms) score += 40;
+        if (startsWithBrand) score += 25;
+        if (compactTitle) score += 10;
+        if (obsoleteTerms) score -= 30;
+        return { image, score, title };
+      }).filter(Boolean).sort((a, b) => b.score - a.score);
 
       const best = candidates[0];
-      return best ? { logo: best.image, source: "wikimedia-commons" } : null;
+      return best ? { logo: best.image, source: "wikimedia-commons", matchedTitle: best.title } : null;
     } catch (error) {
       console.warn("AtlasCube Radio Card: Wikimedia Commons niedostępne, używam źródła zapasowego.", error);
       return null;
@@ -427,7 +456,6 @@ class AtlasCubeRadioCard extends HTMLElement {
   async _loadStationLogo() {
     const station = this._getStation();
     const requestId = ++this._stationLogoRequestId;
-    const searchNames = this._stationLogoSearchNames(station);
 
     if (!station) {
       this._stationLogo = null;
@@ -436,91 +464,88 @@ class AtlasCubeRadioCard extends HTMLElement {
     }
 
     const cacheKey = this._stationLogoKey(station);
-    if (this._stationLogoCache.has(cacheKey)) {
-      this._stationLogo = this._stationLogoCache.get(cacheKey);
+    const cached = this._stationLogoCache.get(cacheKey);
+    if (cached && (cached.logo || (cached.expiresAt && cached.expiresAt > Date.now()))) {
+      this._stationLogo = cached;
       this._render();
       return;
     }
+    // Usuwamy wygasły brak wyniku, aby ponowić wyszukiwanie.
+    if (cached) this._stationLogoCache.delete(cacheKey);
 
-    this._stationLogo = { logo: null, loading: true };
+    this._stationLogo = { logo: null, loading: true, station };
+    this._render();
 
     try {
-      // 1. Wikimedia Commons: stałe mapowania dla znanych stacji, a potem
-      // ostrożne wyszukiwanie po nazwie pliku. Bez pobierania paczki logo.
       let result = await this._findCommonsStationLogo(station, requestId);
       if (requestId !== this._stationLogoRequestId) return;
 
-      // 2. Radio Browser jest rezerwą, gdy Commons nie znajdzie wiarygodnego pliku.
+      // Radio Browser jest rezerwą. Zapytania wykonujemy równolegle, a każdy
+      // kandydat przechodzi ten sam rygorystyczny scoring i kontrolę wariantu.
       if (!result?.logo) {
-        const normalizedQueries = searchNames.map(name => ({
-          name,
-          normalized: this._normalize(name),
-          tokens: this._stationNameTokens(name)
+        const searchNames = this._stationLogoSearchNames(station);
+        const responses = await Promise.all(searchNames.map(async queryName => {
+          const url = "https://de1.api.radio-browser.info/json/stations/search?name=" +
+            encodeURIComponent(queryName) + "&limit=100&order=votes&reverse=true";
+          try {
+            const response = await fetch(url, { headers: { "Accept": "application/json" } });
+            if (!response.ok) return [];
+            const data = await response.json();
+            return Array.isArray(data) ? data : [];
+          } catch (_) {
+            return [];
+          }
         }));
-        const allCandidates = [];
+        if (requestId !== this._stationLogoRequestId) return;
 
-        for (const queryName of searchNames) {
-          const encoded = encodeURIComponent(queryName);
-          const searchUrl = "https://de1.api.radio-browser.info/json/stations/search?name=" +
-            encoded + "&limit=100&order=votes&reverse=true";
-          const response = await fetch(searchUrl, { headers: { "Accept": "application/json" } });
-          if (!response.ok) continue;
-          const data = await response.json();
-          if (Array.isArray(data)) allCandidates.push(...data);
-          if (requestId !== this._stationLogoRequestId) return;
+        const unique = new Map();
+        for (const item of responses.flat()) {
+          if (!item?.name || !item?.favicon) continue;
+          const id = this._normalize(item.name) + "|" + String(item.favicon);
+          if (!unique.has(id)) unique.set(id, item);
         }
 
-        const seen = new Set();
-        const candidates = allCandidates
-          .filter(item => item?.favicon && item?.name)
-          .filter(item => {
-            const id = this._normalize(item.name) + "|" + String(item.favicon);
-            if (seen.has(id)) return false;
-            seen.add(id);
-            return true;
-          })
-          .map(item => {
-            const normalized = this._normalize(item.name);
-            const candidateTokens = this._stationNameTokens(item.name);
-            let bestMatch = null;
-            for (const query of normalizedQueries) {
-              const allWordsPresent = query.tokens.length > 0 &&
-                query.tokens.every(token => candidateTokens.some(candidateToken =>
-                  candidateToken === token ||
-                  (token.length >= 4 && candidateToken.length >= 4 &&
-                    this._levenshtein(token, candidateToken) <= 1)
-                ));
-              const exact = normalized === query.normalized;
-              if (!exact && !allWordsPresent) continue;
-              const extraWords = Math.max(0, candidateTokens.length - query.tokens.length);
-              const score = (exact ? 1000 : 500) - extraWords * 5 +
-                Math.min(20, (Number(item.votes) || 0) / 100);
-              if (!bestMatch || score > bestMatch.score) bestMatch = { exact, score };
-            }
-            return { item, ...bestMatch };
-          })
-          .filter(entry => entry.score !== undefined)
+        const candidates = [...unique.values()].map(item => {
+          let score = -1;
+          for (const queryName of searchNames) {
+            score = Math.max(score, this._stationLogoScore(item, queryName));
+          }
+          return { item, score };
+        }).filter(entry => entry.score >= 500)
           .sort((a, b) => b.score - a.score);
 
-        if (requestId !== this._stationLogoRequestId) return;
-        const logo = candidates[0]?.item?.favicon
-          ? String(candidates[0].item.favicon).replace(/^http:/i, "https:")
-          : null;
-        if (logo) result = { logo, source: "radio-browser" };
+        const best = candidates[0]?.item;
+        if (best?.favicon) {
+          const logo = String(best.favicon).replace(/^http:/i, "https:");
+          result = { logo, source: "radio-browser", matchedName: best.name };
+        }
       }
 
       if (requestId !== this._stationLogoRequestId) return;
+      const hasLogo = Boolean(result?.logo);
       const finalResult = {
-        logo: result?.logo || null,
+        logo: hasLogo ? result.logo : null,
         station,
-        source: result?.source || "none"
+        source: result?.source || "none",
+        matchedName: result?.matchedName || result?.matchedTitle || null,
+        // Sukces jest cache'owany na czas działania karty. Brak wyniku tylko
+        // przez 3 minuty, po czym karta może spróbować ponownie bez migotania.
+        expiresAt: hasLogo ? Number.MAX_SAFE_INTEGER : Date.now() + 180000,
+        retryAt: hasLogo ? null : Date.now() + 180000
       };
       this._stationLogoCache.set(cacheKey, finalResult);
       this._stationLogo = finalResult;
       this._render();
     } catch (error) {
       if (requestId !== this._stationLogoRequestId) return;
-      const finalResult = { logo: null, station, source: "none", error: error?.message || "Nieznany błąd" };
+      const finalResult = {
+        logo: null,
+        station,
+        source: "none",
+        error: error?.message || "Nieznany błąd",
+        expiresAt: Date.now() + 30000,
+        retryAt: Date.now() + 30000
+      };
       this._stationLogoCache.set(cacheKey, finalResult);
       this._stationLogo = finalResult;
       this._render();
