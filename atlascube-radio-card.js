@@ -351,68 +351,71 @@ class AtlasCubeRadioCard extends HTMLElement {
   }
 
   _stationLogoCommonsDirect(station) {
-    const key = this._stationLogoKey(station);
-    // Bezpośrednie adresy upload.wikimedia.org omijają przekierowanie Special:FilePath,
-    // które w niektórych klientach HA nie kończyło się poprawnym wyświetleniem obrazu.
-    const files = {
-      "rmf fm": "https://upload.wikimedia.org/wikipedia/commons/c/ca/RMF_FM_logotyp_2022.png",
-      // Pozioma, żółto-czarna wersja zamiast różowej grafiki RMF MAXX.
-      "rmf maxx": "https://upload.wikimedia.org/wikipedia/commons/0/03/RMF_Maxxx_logo.png",
-      "rmf classic": "https://commons.wikimedia.org/wiki/Special:FilePath/RMF%20CLASSIC%20-%20logotyp.png",
-      "radio zet": "https://commons.wikimedia.org/wiki/Special:FilePath/Radio%20ZET%20logo.png",
-      "polskie radio program 1": "https://commons.wikimedia.org/wiki/Special:FilePath/Polskie%20Radio%20Program%201.svg",
-      "polskie radio program 2": "https://commons.wikimedia.org/wiki/Special:FilePath/Polskie%20Radio%20Program%202.svg",
-      "polskie radio program 3": "https://commons.wikimedia.org/wiki/Special:FilePath/Logotyp%20programu%20trzeciego%20Polskiego%20Radia.svg",
-      "radio eska": "https://commons.wikimedia.org/wiki/Special:FilePath/Logo%20Radia%20Eska.svg"
-    };
-    return files[key] || null;
+    // Nie przypinamy na sztywno pojedynczych plików: mogą być nieaktualne,
+    // różnić się wariantem kolorystycznym albo przestać działać. Logo wybiera
+    // wyszukiwarka na podstawie nazwy stacji i oceny trafności.
+    return null;
   }
 
   async _findCommonsStationLogo(station, requestId) {
-    const direct = this._stationLogoCommonsDirect(station);
-    if (direct) return { logo: direct, source: "wikimedia-commons" };
-
     try {
       const searchNames = this._stationLogoSearchNames(station);
-    for (const name of searchNames) {
-      const query = encodeURIComponent(name + " radio logo");
-      const url = "https://commons.wikimedia.org/w/api.php?action=query&generator=search" +
-        "&gsrsearch=" + query + "&gsrnamespace=6&gsrlimit=10" +
-        "&prop=imageinfo&iiprop=url&iiurlwidth=400&format=json&origin=*";
-      const response = await fetch(url, { headers: { "Accept": "application/json" } });
-      if (!response.ok) continue;
-      const data = await response.json();
-      if (requestId !== this._stationLogoRequestId) return null;
+      const wantedTokens = this._stationNameTokens(this._stationLogoQueryName(station));
+      if (!wantedTokens.length) return null;
 
-      const wantedTokens = this._stationNameTokens(name);
-      const pages = Object.values(data?.query?.pages || {});
-      const candidates = pages.map(page => {
+      // Szukamy po nazwie stacji i po typowych opisach plików.
+      // Nie wymagamy, by słowa „logo” lub „radio” występowały w nazwie pliku.
+      const queries = [...new Set(searchNames.flatMap(name => [
+        name,
+        name + " logo",
+        name + " logotyp"
+      ]))];
+      const allPages = new Map();
+
+      for (const query of queries) {
+        const url = "https://commons.wikimedia.org/w/api.php?action=query&generator=search" +
+          "&gsrsearch=" + encodeURIComponent(query) +
+          "&gsrnamespace=6&gsrlimit=20&prop=imageinfo&iiprop=url&iiurlwidth=500&format=json&origin=*";
+        const response = await fetch(url, { headers: { "Accept": "application/json" } });
+        if (!response.ok) continue;
+        const data = await response.json();
+        if (requestId !== this._stationLogoRequestId) return null;
+        for (const page of Object.values(data?.query?.pages || {})) {
+          if (page?.pageid != null) allPages.set(String(page.pageid), page);
+        }
+      }
+
+      const wantedKey = this._stationLogoKey(station);
+      const candidates = [...allPages.values()].map(page => {
         const title = String(page.title || "").replace(/^File:/i, "");
         const normalizedTitle = this._normalize(title);
         const titleTokens = this._stationNameTokens(title);
-        const containsAll = wantedTokens.length > 0 &&
-          wantedTokens.every(token => titleTokens.some(candidate =>
-            candidate === token ||
-            (token.length >= 4 && candidate.length >= 4 && this._levenshtein(token, candidate) <= 1)
-          ));
-        const looksLikeLogo = /logo|logotyp|logotype|loga/i.test(title);
-        const looksLikePhoto = /\b(photo|fotografia|zdjecie|samochod|studio|nadajnik)\b/i.test(normalizedTitle);
-        const score = (containsAll ? 100 : 0) + (looksLikeLogo ? 30 : 0) - (looksLikePhoto ? 200 : 0);
-        return { page, title, score, containsAll, looksLikeLogo, looksLikePhoto };
-      }).filter(item =>
-        item.containsAll && item.looksLikeLogo && !item.looksLikePhoto &&
-        (item.page.imageinfo?.[0]?.thumburl || item.page.imageinfo?.[0]?.url)
-      ).sort((a, b) => b.score - a.score);
+        const hasAllBrandTokens = wantedTokens.every(token =>
+          titleTokens.some(candidate => candidate === token ||
+            (token.length >= 5 && candidate.length >= 5 && this._levenshtein(token, candidate) <= 1))
+        );
+        const hasConflictingVariant =
+          (wantedKey === "rmf fm" && /\brmf (maxx|classic|on|24)\b/.test(normalizedTitle)) ||
+          (wantedKey === "rmf maxx" && /\brmf (fm|classic|on|24)\b/.test(normalizedTitle)) ||
+          (wantedKey === "rmf classic" && /\brmf (fm|maxx|on|24)\b/.test(normalizedTitle));
+        const logoTerms = /logo|logotyp|logotype|loga|znak graficzny|brand/i.test(title);
+        const photoTerms = /\b(photo|fotografia|zdjecie|samochod|studio|nadajnik|siedziba|budynek|osoba)\b/i.test(normalizedTitle);
+        const image = page.imageinfo?.[0]?.thumburl || page.imageinfo?.[0]?.url || "";
+        let score = 0;
+        if (hasAllBrandTokens) score += 100;
+        if (logoTerms) score += 35;
+        if (normalizedTitle.startsWith(this._normalize(this._stationLogoQueryName(station)))) score += 20;
+        if (titleTokens.length <= wantedTokens.length + 4) score += 5;
+        if (photoTerms) score -= 100;
+        if (hasConflictingVariant) score -= 250;
+        if (/\b(old|obsolete|historic|history|stare logo|dawne logo|wersja testowa)\b/i.test(normalizedTitle)) score -= 20;
+        if (!image) score = -1;
+        return { image, score, hasAllBrandTokens, hasConflictingVariant };
+      }).filter(item => item.score >= 100 && item.hasAllBrandTokens && !item.hasConflictingVariant)
+        .sort((a, b) => b.score - a.score);
 
       const best = candidates[0];
-      if (best) {
-        return {
-          logo: best.page.imageinfo[0].thumburl || best.page.imageinfo[0].url,
-          source: "wikimedia-commons"
-        };
-      }
-    }
-      return null;
+      return best ? { logo: best.image, source: "wikimedia-commons" } : null;
     } catch (error) {
       console.warn("AtlasCube Radio Card: Wikimedia Commons niedostępne, używam źródła zapasowego.", error);
       return null;
@@ -663,6 +666,7 @@ class AtlasCubeRadioCard extends HTMLElement {
     const album = data.album || "";
     const playback = this._hass?.states?.[r.playback]?.state || "";
     const playing = playback === "playing";
+    const idle = online && !playing;
     const volumeState = this._hass?.states?.[r.volume]?.state;
     const volume = Number(volumeState);
     const volumeValue = Number.isFinite(volume) ? Math.max(0, Math.min(100, volume)) : 0;
@@ -719,6 +723,18 @@ class AtlasCubeRadioCard extends HTMLElement {
         .card.has-art { min-height:500px; }
         .card.playing-noart { background: radial-gradient(circle at 50% 42%, rgba(33,150,243,.18) 0%, rgba(33,150,243,.06) 38%, rgba(0,0,0,.18) 100%); border-color:rgba(33,150,243,.35); }
         .card.offline { background:rgba(25,25,25,.45); border-color:rgba(244,67,54,.18); }
+        .card.idle-ready {
+          background: radial-gradient(ellipse at 50% 45%, rgba(33,150,243,.12) 0%, rgba(33,150,243,.055) 48%, rgba(0,0,0,.12) 100%);
+          border-color: rgba(33,150,243,.20);
+          box-shadow: 0 0 24px rgba(33,150,243,.08), 0 4px 18px rgba(0,0,0,.22);
+        }
+        .card.idle-ready .topbar { margin-bottom: 0; }
+        .card.idle-ready .station-logo-slot,
+        .card.idle-ready .station-name,
+        .card.idle-ready .source { display:none !important; }
+        .card.idle-ready .controls { margin-top: 8px; }
+        .card.idle-ready .volume { margin-top: 10px; }
+
 
         .blur-bg-image {
           display: block;
@@ -915,7 +931,7 @@ class AtlasCubeRadioCard extends HTMLElement {
         .source select { flex:1; min-width:0; height:36px; padding:0 10px; border:1px solid rgba(255,255,255,.12); border-radius:10px; background:rgba(0,0,0,.18); color:inherit; font:inherit; outline:none; }
       </style>
 
-      <div class="card ${!online ? "offline" : artworkEnabled && playing && artwork ? "has-art" : !artworkEnabled && playing ? "playing-noart" : ""}">
+      <div class="card ${!online ? "offline" : idle ? "idle-ready" : artworkEnabled && playing && artwork ? "has-art" : !artworkEnabled && playing ? "playing-noart" : ""}">
         ${background}
 
         <div class="content">
