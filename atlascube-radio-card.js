@@ -272,6 +272,58 @@ class AtlasCubeRadioCard extends HTMLElement {
     return aliases[key] || [this._stationLogoQueryName(value)];
   }
 
+  _stationLogoStreamUrl(value) {
+    // Źródła pochodzą z domyślnej playlisty AtlasCube:
+    // spiffs_image/config/playlist.csv w repo marcinozog/AtlasCube.
+    // Wyszukiwanie po URL jest pewniejsze niż dopasowanie podobnych nazw.
+    const streams = {
+      "antyradio": "https://an04.cdn.eurozet.pl/ant-web.mp3",
+      "play 90s": "https://live.playradio.org:8443/90HD",
+      "paranormalium": "https://shoutcast.paranormalium.pl:8000/1",
+      "pr wroclaw": "https://stream4.nadaje.com:9241/prw",
+      "eska wroclaw": "https://waw.ic.smcdn.pl/2180-1.mp3",
+      "tok fm": "https://go-audio.toya.net.pl/793",
+      "wnet": "http://audio.radiownet.pl:8000/stream",
+      "polskie radio program 1": "http://mp3.polskieradio.pl:8900/;",
+      "polskie radio program 2": "http://mp3.polskieradio.pl:8902/;",
+      "polskie radio program 3": "http://mp3.polskieradio.pl:8904/;",
+      "rmf fm": "http://195.150.20.242:8000/rmf_fm",
+      "radio zet": "http://zet090-02.cdn.eurozet.pl:8404/;",
+      "radio zlote przeboje": "http://poznan7.radio.pionier.net.pl:8000/tuba9-1.mp3",
+      "rmf maxx": "http://195.150.20.242:8000/rmf_maxxx",
+      "vox fm": "https://waw.ic.smcdn.pl/3210-1.mp3",
+      "muzo fm": "https://stream.rcs.revma.com/1nnezw8qz7zuv",
+      "mc radio": "http://stream4.nadaje.com:10128/mcradio_mp3",
+      "melo radio": "https://n-11-24.dcs.redcdn.pl/sc/o2/Eurozet/live/meloradio.livx?audio=5",
+      "groovesalad 128": "http://ice2.somafm.com/groovesalad-128-mp3",
+      "groovesalad 256": "http://ice2.somafm.com/groovesalad-256-mp3",
+      "blues wave": "https://blueswave.radio:8000/blueswave",
+      "kossuth aac": "http://mr-stream.mediaconnect.hu/4734/mr1.aac"
+    };
+    return streams[this._stationLogoKey(value)] || streams[this._normalize(value)] || null;
+  }
+
+  async _stationLogoRadioBrowserGet(path) {
+    const hosts = [
+      "all.api.radio-browser.info",
+      "de1.api.radio-browser.info",
+      "fi1.api.radio-browser.info"
+    ];
+    for (const host of hosts) {
+      try {
+        const response = await fetch("https://" + host + path, {
+          headers: { "Accept": "application/json" }
+        });
+        if (!response.ok) continue;
+        const data = await response.json();
+        if (Array.isArray(data)) return data;
+      } catch (_) {
+        // Próbujemy kolejnego lustra Radio Browser.
+      }
+    }
+    return [];
+  }
+
   _stationNameTokens(value) {
     return this._normalize(value)
       .split(/\s+/)
@@ -489,24 +541,41 @@ class AtlasCubeRadioCard extends HTMLElement {
     this._render();
 
     try {
-      // Radio Browser jest źródłem pierwszego wyboru: rekord stacji może
-      // już zawierać właściwe logo w polu favicon. Wikimedia jest rezerwą.
+      // Radio Browser jest źródłem pierwszego wyboru. Najpierw korzystamy
+      // z adresu streamu z domyślnej playlisty AtlasCube, bo URL identyfikuje
+      // stację pewniej niż podobieństwo nazw (np. różne kanały RMF).
       let result = null;
+      const streamUrl = this._stationLogoStreamUrl(station);
+      if (streamUrl) {
+        const byUrl = await this._stationLogoRadioBrowserGet(
+          "/json/stations/byurl?url=" + encodeURIComponent(streamUrl) +
+          "&hidebroken=true&limit=20"
+        );
+        if (requestId !== this._stationLogoRequestId) return;
+        const wantedKey = this._stationLogoKey(station);
+        const exactStreamMatches = byUrl
+          .filter(item => item?.name && item?.favicon)
+          .filter(item => this._stationLogoKey(item.name) === wantedKey)
+          .sort((a, b) => (Number(b.votes) || 0) - (Number(a.votes) || 0));
+        const exact = exactStreamMatches[0];
+        if (exact?.favicon) {
+          result = {
+            logo: String(exact.favicon).replace(/^http:/i, "https:"),
+            source: "radio-browser-url",
+            matchedName: exact.name,
+            matchedStream: streamUrl
+          };
+        }
+      }
 
-      // Najpierw katalog Radio Browser.
-        const searchNames = this._stationLogoSearchNames(station);
-        const responses = await Promise.all(searchNames.map(async queryName => {
-          const url = "https://de1.api.radio-browser.info/json/stations/search?name=" +
-            encodeURIComponent(queryName) + "&limit=100&order=votes&reverse=true";
-          try {
-            const response = await fetch(url, { headers: { "Accept": "application/json" } });
-            if (!response.ok) return [];
-            const data = await response.json();
-            return Array.isArray(data) ? data : [];
-          } catch (_) {
-            return [];
-          }
-        }));
+      // Gdy URL nie ma wiarygodnego rekordu z logo, dopiero wtedy szukamy po nazwie.
+      const searchNames = this._stationLogoSearchNames(station);
+        const responses = result?.logo ? [] : await Promise.all(searchNames.map(async queryName =>
+          this._stationLogoRadioBrowserGet(
+            "/json/stations/search?name=" + encodeURIComponent(queryName) +
+            "&limit=100&order=votes&reverse=true"
+          )
+        ));
         if (requestId !== this._stationLogoRequestId) return;
 
         const unique = new Map();
@@ -526,9 +595,9 @@ class AtlasCubeRadioCard extends HTMLElement {
           .sort((a, b) => b.score - a.score);
 
         const best = candidates[0]?.item;
-        if (best?.favicon) {
+        if (!result?.logo && best?.favicon) {
           const logo = String(best.favicon).replace(/^http:/i, "https:");
-          result = { logo, source: "radio-browser", matchedName: best.name };
+          result = { logo, source: "radio-browser-name", matchedName: best.name };
         }
 
       if (requestId !== this._stationLogoRequestId) return;
