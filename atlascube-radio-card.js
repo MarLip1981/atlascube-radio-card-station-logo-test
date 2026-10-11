@@ -572,64 +572,99 @@ class AtlasCubeRadioCard extends HTMLElement {
     this._render();
 
     try {
-      // Wierne odwzorowanie iconLookup() z playlist.js oryginalnego AtlasCube:
-      // byurl dla prawdziwego URL-u; bynameexact tylko gdy byurl zwróci pustą listę;
-      // rekordy z favicon, deduplikacja stationuuid/favicon i sortowanie clickcount.
       const deviceStation = await this._stationLogoStationFromDevice(station);
       if (requestId !== this._stationLogoRequestId) return;
 
-      let list = [];
-      let exact = true;
+      const wantedKey = this._stationLogoKey(station);
+      const searchNames = this._stationLogoSearchNames(station);
+      let result = null;
+
+      // URL jest pierwszym źródłem, ale nie ufamy rekordowi, jeśli jego nazwa
+      // wskazuje inną stację lub wariant (np. Eska Rock TV zamiast Eska Rock).
       if (deviceStation?.url) {
-        list = await this._stationLogoRadioBrowserGet(
+        const byUrl = await this._stationLogoRadioBrowserGet(
           "/json/stations/byurl?url=" + encodeURIComponent(deviceStation.url) +
           "&hidebroken=true&limit=20"
         );
-      }
-      if (requestId !== this._stationLogoRequestId) return;
+        if (requestId !== this._stationLogoRequestId) return;
 
-      if ((!Array.isArray(list) || list.length === 0) && deviceStation?.name) {
-        exact = false;
-        list = await this._stationLogoRadioBrowserGet(
+        const urlMatches = byUrl
+          .filter(item => item?.name && item?.favicon)
+          .filter(item => this._stationLogoKey(item.name) === wantedKey)
+          .sort((a, b) => (Number(b.clickcount) || 0) - (Number(a.clickcount) || 0));
+
+        if (urlMatches[0]) {
+          const item = urlMatches[0];
+          result = {
+            logo: String(item.favicon).replace(/^http:/i, "https:"),
+            source: "radio-browser-url-verified-name",
+            matchedName: item.name,
+            matchedStream: deviceStation.url
+          };
+        }
+      }
+
+      // Jeśli URL nie dał potwierdzonego logo, przywracamy szukanie po nazwie.
+      // To ważne dla stacji, których strumień nie jest poprawnie skatalogowany
+      // w Radio Browser. Nigdy nie akceptujemy tu podobnego, lecz innego kanału.
+      if (!result?.logo && deviceStation?.name) {
+        const byExactName = await this._stationLogoRadioBrowserGet(
           "/json/stations/bynameexact/" + encodeURIComponent(deviceStation.name) +
           "?hidebroken=true&limit=20"
         );
-      }
-      if (requestId !== this._stationLogoRequestId) return;
+        if (requestId !== this._stationLogoRequestId) return;
 
-      const seen = new Set();
-      const matches = (Array.isArray(list) ? list : [])
-        .filter(item => item && item.favicon)
-        .filter(item => {
-          const key = item.stationuuid || item.favicon;
-          if (seen.has(key)) return false;
-          seen.add(key);
-          return true;
-        })
-        .sort((a, b) => (Number(b.clickcount) || 0) - (Number(a.clickcount) || 0));
+        const exactMatches = byExactName
+          .filter(item => item?.name && item?.favicon)
+          .filter(item => this._stationLogoKey(item.name) === wantedKey)
+          .sort((a, b) => (Number(b.clickcount) || 0) - (Number(a.clickcount) || 0));
 
-      // Po URL oryginalny AtlasCube wybiera najpopularniejszy favicon.
-      // Przy awaryjnym dopasowaniu po nazwie nie zgadujemy między wieloma
-      // stacjami o tej samej nazwie.
-      let result = null;
-      if (exact && matches.length > 0) {
-        result = {
-          logo: String(matches[0].favicon).replace(/^http:/i, "https:"),
-          source: "radio-browser-url",
-          matchedName: matches[0].name,
-          matchedStream: deviceStation?.url || null
-        };
-      } else if (!exact && matches.length === 1) {
-        result = {
-          logo: String(matches[0].favicon).replace(/^http:/i, "https:"),
-          source: "radio-browser-exact-name",
-          matchedName: matches[0].name
-        };
+        if (exactMatches[0]) {
+          const item = exactMatches[0];
+          result = {
+            logo: String(item.favicon).replace(/^http:/i, "https:"),
+            source: "radio-browser-exact-name",
+            matchedName: item.name
+          };
+        }
       }
 
+      // Ostatnia próba w Radio Browser: szersze wyszukiwanie, ale tylko
+      // kandydaci o zgodnej, kanonicznej nazwie. Bez dopasowań typu Eska Rock TV.
+      if (!result?.logo) {
+        const responses = await Promise.all(searchNames.map(queryName =>
+          this._stationLogoRadioBrowserGet(
+            "/json/stations/search?name=" + encodeURIComponent(queryName) +
+            "&limit=100&order=clickcount&reverse=true"
+          )
+        ));
+        if (requestId !== this._stationLogoRequestId) return;
+
+        const unique = new Map();
+        for (const item of responses.flat()) {
+          if (!item?.name || !item?.favicon) continue;
+          if (this._stationLogoKey(item.name) !== wantedKey) continue;
+          const id = this._normalize(item.name) + "|" + String(item.favicon);
+          if (!unique.has(id)) unique.set(id, item);
+        }
+
+        const candidates = [...unique.values()]
+          .sort((a, b) => (Number(b.clickcount) || 0) - (Number(a.clickcount) || 0));
+
+        if (candidates[0]) {
+          const item = candidates[0];
+          result = {
+            logo: String(item.favicon).replace(/^http:/i, "https:"),
+            source: "radio-browser-name-verified",
+            matchedName: item.name
+          };
+        }
+      }
+
       if (requestId !== this._stationLogoRequestId) return;
 
-      // Commons pozostaje awaryjnym źródłem, gdy nie ma jednoznacznego logo.
+      // Wikimedia Commons jest wyłącznie ostatnim fallbackiem. Jeśli nie
+      // ma pewnego trafienia, lepiej pokazać samą nazwę niż logo innej stacji.
       if (!result?.logo) {
         const stationKey = this._stationLogoKey(station);
         const isRmfSubbrand = /^rmf (fm|maxx|classic|on|24)$/.test(stationKey);
