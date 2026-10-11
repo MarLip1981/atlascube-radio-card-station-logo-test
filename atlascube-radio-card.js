@@ -708,6 +708,7 @@ class AtlasCubeRadioCard extends HTMLElement {
           const item = urlMatches[0];
           result = {
             logo: String(item.favicon).replace(/^http:/i, "https:"),
+            originalLogo: String(item.favicon),
             source: "radio-browser-url-verified-name",
             matchedName: item.name,
             matchedStream: deviceStation.url
@@ -738,6 +739,7 @@ class AtlasCubeRadioCard extends HTMLElement {
           const item = exactMatches[0];
           result = {
             logo: String(item.favicon).replace(/^http:/i, "https:"),
+            originalLogo: String(item.favicon),
             source: "radio-browser-exact-name",
             matchedName: item.name
           };
@@ -770,6 +772,7 @@ class AtlasCubeRadioCard extends HTMLElement {
           const item = candidates[0];
           result = {
             logo: String(item.favicon).replace(/^http:/i, "https:"),
+            originalLogo: String(item.favicon),
             source: "radio-browser-name-verified",
             matchedName: item.name
           };
@@ -792,6 +795,7 @@ class AtlasCubeRadioCard extends HTMLElement {
       const hasLogo = Boolean(result?.logo);
       const finalResult = {
         logo: hasLogo ? result.logo : null,
+        originalLogo: result?.originalLogo || result?.logo || null,
         station,
         source: result?.source || "none",
         matchedName: result?.matchedName || result?.matchedTitle || null,
@@ -1272,15 +1276,15 @@ class AtlasCubeRadioCard extends HTMLElement {
         ${background}
 
         <div class="content">
-          <div class="test-version-banner">WERSJA TESTOWA · ver0.5 · LOGO STACJI</div>
+          <div class="test-version-banner">WERSJA TESTOWA · ver0.6 · LOGO STACJI</div>
           <div class="logo-diagnostics">
             <div class="logo-diagnostics-heading">PORÓWNANIE WYNIKÓW — STAŁE OZNACZENIA METOD</div><div class="logo-diagnostics-source">Kliknij wynik, aby tymczasowo sprawdzić go jako logo karty.</div>
             <div class="logo-diagnostics-row">
               ${(this._stationLogoDiagnostics || []).length ? this._stationLogoDiagnostics.map(item => `
                 <div class="logo-diagnostic-item ${this._stationLogo?.logo === item.logo ? "selected" : ""}" data-logo-index="${this._stationLogoDiagnostics.indexOf(item)}" role="button" tabindex="0" title="Kliknij, aby sprawdzić: ${this._escape(item.number)} — ${this._escape(item.matchedName)} — ${this._escape(item.source)}">
                   <div class="logo-diagnostic-number">${this._escape(item.number)}</div>
-                  <img class="logo-diagnostic-image" src="${this._escape(item.logo)}" alt="" aria-hidden="true"
-                    onerror="this.classList.add('failed');this.nextElementSibling.classList.add('visible');">
+                  <img class="logo-diagnostic-image" src="${this._escape(item.logo)}" data-original-src="${this._escape(item.originalLogo || item.logo)}" alt="" aria-hidden="true"
+                    onerror="if(!this.dataset.proxyTried){this.dataset.proxyTried='1';const u=this.dataset.originalSrc||this.src;this.src='https://images.weserv.nl/?url='+encodeURIComponent(u.replace(/^https?:\\/\\//i,''));}else{this.classList.add('failed');this.nextElementSibling.classList.add('visible');}">
                   <div class="logo-diagnostic-failed">brak obrazu</div>
                   <div class="logo-diagnostic-source">${this._escape(item.source)}</div>
                   <div class="logo-diagnostic-name">${this._escape(item.matchedName)}</div>
@@ -1288,7 +1292,7 @@ class AtlasCubeRadioCard extends HTMLElement {
               `).join("") : `<div class="logo-diagnostic-source">Oczekiwanie na wyniki wyszukiwania…</div>`}
             </div>
           </div>
-          ${!online ? `<div class="topbar"><div class="brand"><span class="brand-icon">◈</span><span>ATLAS <span class="brand-cube">CUBE</span></span></div></div><div class="offline-icon"><ha-icon icon="mdi:wifi-off"></ha-icon></div><div class="offline-title">Radio AtlasCube</div><div class="offline-text">niedostępne w sieci</div>` : `<div class="topbar"><div class="brand ${webUrl ? "web" : ""}" id="brand" title="${webUrl ? "Otwórz panel AtlasCube" : ""}"><span class="brand-icon">◈</span><span>ATLAS <span class="brand-cube">CUBE</span></span></div>${stationLogoEnabled && stationLogo ? `<div class="station-logo-slot"><img class="station-logo" src="${this._escape(stationLogo)}" alt="" aria-hidden="true" onerror="this.parentElement.classList.add(&quot;empty&quot;);"></div>` : ""}</div><div class="station-name">${this._escape(station && station !== "unknown" && station !== "unavailable" ? station : "Radio internetowe")}</div>${artworkEnabled && playing ? `${image}<div class="artist">${this._escape(artist || "Nieznany wykonawca")}</div><div class="title">${this._escape(title)}</div>${album ? `<div class="album">${this._escape(album)}</div>` : ""}` : !artworkEnabled ? `${image}` : ""}`}
+          ${!online ? `<div class="topbar"><div class="brand"><span class="brand-icon">◈</span><span>ATLAS <span class="brand-cube">CUBE</span></span></div></div><div class="offline-icon"><ha-icon icon="mdi:wifi-off"></ha-icon></div><div class="offline-title">Radio AtlasCube</div><div class="offline-text">niedostępne w sieci</div>` : `<div class="topbar"><div class="brand ${webUrl ? "web" : ""}" id="brand" title="${webUrl ? "Otwórz panel AtlasCube" : ""}"><span class="brand-icon">◈</span><span>ATLAS <span class="brand-cube">CUBE</span></span></div>${stationLogoEnabled && stationLogo ? `<div class="station-logo-slot"><img class="station-logo" src="${this._escape(stationLogo)}" data-original-src="${this._escape(this._stationLogo?.originalLogo || stationLogo)}" alt="" aria-hidden="true" onerror="if(!this.dataset.proxyTried){this.dataset.proxyTried='1';const u=this.dataset.originalSrc||this.src;this.src='https://images.weserv.nl/?url='+encodeURIComponent(u.replace(/^https?:\\/\\//i,''));}else{this.parentElement.classList.add(&quot;empty&quot;);}"></div>` : ""}</div><div class="station-name">${this._escape(station && station !== "unknown" && station !== "unavailable" ? station : "Radio internetowe")}</div>${artworkEnabled && playing ? `${image}<div class="artist">${this._escape(artist || "Nieznany wykonawca")}</div><div class="title">${this._escape(title)}</div>${album ? `<div class="album">${this._escape(album)}</div>` : ""}` : !artworkEnabled ? `${image}` : ""}`}
           ${online ? `<div class="controls">
             <button class="skip" id="previous" aria-label="Poprzednia stacja">
               <ha-icon icon="mdi:skip-previous"></ha-icon>
@@ -1323,6 +1327,7 @@ class AtlasCubeRadioCard extends HTMLElement {
         // visible as "brak obrazu" if the host doesn't serve that resource.
         const selected = {
           logo: candidate.logo,
+          originalLogo: candidate.originalLogo || candidate.logo,
           station: this._getStation(),
           source: "test-manual-" + candidate.number,
           matchedName: candidate.matchedName,
@@ -1684,8 +1689,8 @@ class AtlasCubeRadioCardEditor extends HTMLElement {
       </style>
 
       <div class="box">
-        <div class="badge">TEST ver0.5 — LOGO STACJI</div>
-        <h2>AtlasCube Radio — TEST LOGO STACJI ver0.5</h2>
+        <div class="badge">TEST ver0.6 — LOGO STACJI</div>
+        <h2>AtlasCube Radio — TEST LOGO STACJI ver0.6</h2>
         <p>Karta wykrywa AtlasCube i korzysta z natywnej dostępności MQTT przez stany jego encji.</p>
 
         <button class="auto" id="auto">🔎 Automatycznie wykryj AtlasCube</button>
@@ -1771,8 +1776,8 @@ customElements.define("atlascube-radio-card-station-logo-test", AtlasCubeRadioCa
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "atlascube-radio-card-station-logo-test",
-  name: "AtlasCube Radio Card — TEST LOGO STACJI ver0.5",
-  description: "WERSJA TESTOWA ver0.5 — porównanie wielu wyników logo stacji radiowych",
+  name: "AtlasCube Radio Card — TEST LOGO STACJI ver0.6",
+  description: "WERSJA TESTOWA ver0.6 — awaryjne ładowanie logo stacji",
   preview: true,
   documentationURL: "https://github.com/MarLip1981/atlascube-radio-card-station-logo-test"
 });
