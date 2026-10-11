@@ -427,6 +427,14 @@ class AtlasCubeRadioCard extends HTMLElement {
     const candidateRmf = candidateRmfMatch?.[1] === "maxxx" ? "maxx" : candidateRmfMatch?.[1];
     if (wantedRmf && candidateRmf && candidateRmf !== wantedRmf) return true;
 
+    // Wariant telewizyjny nie jest tym samym co stacja radiowa
+    // (np. Eska Rock TV nie może zastąpić Eski Rock).
+    const wantedTokensForVariant = this._stationNameTokens(wanted);
+    const candidateTokensForVariant = this._stationNameTokens(candidate);
+    const hasTvSuffix = /\\b(tv|telewizja|television)\\b/.test(candidateText);
+    const wantedHasTv = /\\b(tv|telewizja|television)\\b/.test(this._normalize(wanted));
+    if (hasTvSuffix && !wantedHasTv && wantedTokensForVariant.every(token => candidateTokensForVariant.includes(token))) return true;
+
     // Polskie Radio: Program 1/2/3 oraz Jedynka/Dwójka/Trójka to odrębne marki.
     const wantedProgram = wantedKey.match(/^polskie radio program ([123])$/)?.[1];
     const candidateProgram = candidateText.match(/\bprogram ([123])\b/)?.[1];
@@ -590,8 +598,14 @@ class AtlasCubeRadioCard extends HTMLElement {
 
         const urlMatches = byUrl
           .filter(item => item?.name && item?.favicon)
-          .filter(item => this._stationLogoKey(item.name) === wantedKey)
-          .sort((a, b) => (Number(b.clickcount) || 0) - (Number(a.clickcount) || 0));
+          // URL strumienia jest mocnym sygnałem: dopuszczamy nieco inną
+          // pisownię nazwy, ale odrzucamy jawnie inny wariant kanału.
+          .filter(item => !this._stationLogoHasConflictingVariant(station, item.name))
+          .map(item => ({ item, score: this._stationLogoScore(item, station) }))
+          .filter(entry => entry.score >= 0)
+          .sort((a, b) => b.score - a.score ||
+            (Number(b.item.clickcount) || 0) - (Number(a.item.clickcount) || 0))
+          .map(entry => entry.item);
 
         if (urlMatches[0]) {
           const item = urlMatches[0];
@@ -616,8 +630,12 @@ class AtlasCubeRadioCard extends HTMLElement {
 
         const exactMatches = byExactName
           .filter(item => item?.name && item?.favicon)
-          .filter(item => this._stationLogoKey(item.name) === wantedKey)
-          .sort((a, b) => (Number(b.clickcount) || 0) - (Number(a.clickcount) || 0));
+          .filter(item => !this._stationLogoHasConflictingVariant(station, item.name))
+          .map(item => ({ item, score: this._stationLogoScore(item, station) }))
+          .filter(entry => entry.score >= 0)
+          .sort((a, b) => b.score - a.score ||
+            (Number(b.item.clickcount) || 0) - (Number(a.item.clickcount) || 0))
+          .map(entry => entry.item);
 
         if (exactMatches[0]) {
           const item = exactMatches[0];
