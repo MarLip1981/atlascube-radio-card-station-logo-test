@@ -1839,7 +1839,7 @@ customElements.define("atlascube-radio-card-station-logo-test", AtlasCubeRadioCa
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "atlascube-radio-card-station-logo-test",
-  name: "AtlasCube Radio Card — TEST LOGO STACJI ver0.6",
+  name: "AtlasCube Radio Card — TEST LOGO STACJI ver0.7",
   description: "WERSJA TESTOWA ver0.7 — priorytet kandydatów i ponawianie ładowania logo",
   preview: true,
   documentationURL: "https://github.com/MarLip1981/atlascube-radio-card-station-logo-test"
