@@ -575,20 +575,25 @@ class AtlasCubeRadioCard extends HTMLElement {
 
       const candidates = [];
       const addCandidates = (items, source, limit = 2) => {
-        const seen = new Set();
         let added = 0;
+        const sourceKey = source.includes("URL") ? "URL"
+          : source.includes("NAZWA") ? "NAZWA" : "SZUKAJ";
         for (const item of (Array.isArray(items) ? items : [])) {
           if (!item?.favicon) continue;
           const url = String(item.favicon).trim();
-          if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
-          seen.add(url);
+          if (!/^https?:\/\//i.test(url)) continue;
+          added += 1;
           candidates.push({
+            // Stały identyfikator metody i pozycji; nie zmienia się, gdy inne
+            // logo jest niedostępne albo ten sam URL pojawia się w kilku źródłach.
+            number: sourceKey + "-" + added,
             logo: url.replace(/^http:/i, "https:"),
+            originalLogo: url,
             source,
             matchedName: String(item.name || station),
             stream: String(item.url || "")
           });
-          if (++added >= limit) break;
+          if (added >= limit) break;
         }
       };
 
@@ -630,23 +635,17 @@ class AtlasCubeRadioCard extends HTMLElement {
       if (requestId !== this._stationLogoDiagnosticsRequestId) return;
       if (commons?.logo) {
         candidates.push({
+          number: "COMMONS",
           logo: commons.logo,
+          originalLogo: commons.logo,
           source: "4 · COMMONS",
           matchedName: String(commons.matchedTitle || station)
         });
       }
 
-      const unique = [];
-      const seenUrls = new Set();
-      for (const item of candidates) {
-        if (seenUrls.has(item.logo)) continue;
-        seenUrls.add(item.logo);
-        unique.push(item);
-      }
-      this._stationLogoDiagnostics = unique.slice(0, 7).map((item, index) => ({
-        ...item,
-        number: index + 1
-      }));
+      // Nie usuwamy powtórzeń między źródłami: np. URL-1 i NAZWA-1
+      // muszą zachować swoje identyfikatory, nawet jeśli prowadzą do tego samego pliku.
+      this._stationLogoDiagnostics = candidates.slice(0, 7);
     } catch (error) {
       console.warn("AtlasCube TEST: nie udało się zebrać wyników diagnostycznych logo.", error);
       this._stationLogoDiagnostics = [];
@@ -1069,6 +1068,8 @@ class AtlasCubeRadioCard extends HTMLElement {
           border:1px dashed rgba(255,193,7,.55); border-radius:10px;
           background:rgba(0,0,0,.10);
         }
+        .logo-diagnostic-item { cursor:pointer; }
+        .logo-diagnostic-item.selected { outline:2px solid var(--primary-color, #03a9f4); outline-offset:2px; border-radius:8px; }
         .logo-diagnostics-heading {
           margin:0 0 7px; font-size:10px; font-weight:800; opacity:.78;
           text-align:left; letter-spacing:.05em;
@@ -1273,11 +1274,11 @@ class AtlasCubeRadioCard extends HTMLElement {
         <div class="content">
           <div class="test-version-banner">WERSJA TESTOWA · ver0.5 · LOGO STACJI</div>
           <div class="logo-diagnostics">
-            <div class="logo-diagnostics-heading">PORÓWNANIE WYNIKÓW — NUMERY OD LEWEJ</div>
+            <div class="logo-diagnostics-heading">PORÓWNANIE WYNIKÓW — STAŁE OZNACZENIA METOD</div><div class="logo-diagnostics-source">Kliknij wynik, aby tymczasowo sprawdzić go jako logo karty.</div>
             <div class="logo-diagnostics-row">
               ${(this._stationLogoDiagnostics || []).length ? this._stationLogoDiagnostics.map(item => `
-                <div class="logo-diagnostic-item" title="${this._escape(item.matchedName)} — ${this._escape(item.source)}">
-                  <div class="logo-diagnostic-number">${item.number}</div>
+                <div class="logo-diagnostic-item ${this._stationLogo?.logo === item.logo ? "selected" : ""}" data-logo-index="${this._stationLogoDiagnostics.indexOf(item)}" role="button" tabindex="0" title="Kliknij, aby sprawdzić: ${this._escape(item.number)} — ${this._escape(item.matchedName)} — ${this._escape(item.source)}">
+                  <div class="logo-diagnostic-number">${this._escape(item.number)}</div>
                   <img class="logo-diagnostic-image" src="${this._escape(item.logo)}" alt="" aria-hidden="true"
                     onerror="this.classList.add('failed');this.nextElementSibling.classList.add('visible');">
                   <div class="logo-diagnostic-failed">brak obrazu</div>
@@ -1312,6 +1313,35 @@ class AtlasCubeRadioCard extends HTMLElement {
         </div>
       </div>
     `;
+
+    this.shadowRoot.querySelectorAll(".logo-diagnostic-item").forEach(item => {
+      const selectCandidate = () => {
+        const index = Number(item.dataset.logoIndex);
+        const candidate = this._stationLogoDiagnostics[index];
+        if (!candidate?.logo) return;
+        // Try the HTTPS URL first; image onerror will keep the diagnostic tile
+        // visible as "brak obrazu" if the host doesn't serve that resource.
+        const selected = {
+          logo: candidate.logo,
+          station: this._getStation(),
+          source: "test-manual-" + candidate.number,
+          matchedName: candidate.matchedName,
+          expiresAt: Number.MAX_SAFE_INTEGER,
+          retryAt: null
+        };
+        this._stationLogoRequestId += 1;
+        this._stationLogo = selected;
+        this._stationLogoCache.set(this._stationLogoKey(selected.station), selected);
+        this._render();
+      };
+      item.addEventListener("click", selectCandidate);
+      item.addEventListener("keydown", event => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          selectCandidate();
+        }
+      });
+    });
 
     this.shadowRoot.querySelector("#brand")?.addEventListener("click", () => {
       if (webUrl) window.open(webUrl, "_blank", "noopener,noreferrer");
