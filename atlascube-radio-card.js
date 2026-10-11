@@ -431,8 +431,8 @@ class AtlasCubeRadioCard extends HTMLElement {
     // (np. Eska Rock TV nie może zastąpić Eski Rock).
     const wantedTokensForVariant = this._stationNameTokens(wanted);
     const candidateTokensForVariant = this._stationNameTokens(candidate);
-    const hasTvSuffix = /\\b(tv|telewizja|television)\\b/.test(candidateText);
-    const wantedHasTv = /\\b(tv|telewizja|television)\\b/.test(this._normalize(wanted));
+    const hasTvSuffix = /\b(tv|telewizja|television)\b/.test(candidateText);
+    const wantedHasTv = /\b(tv|telewizja|television)\b/.test(this._normalize(wanted));
     if (hasTvSuffix && !wantedHasTv && wantedTokensForVariant.every(token => candidateTokensForVariant.includes(token))) return true;
 
     // Polskie Radio: Program 1/2/3 oraz Jedynka/Dwójka/Trójka to odrębne marki.
