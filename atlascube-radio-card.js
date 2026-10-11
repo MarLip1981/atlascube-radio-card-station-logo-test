@@ -1271,7 +1271,7 @@ class AtlasCubeRadioCard extends HTMLElement {
         ${background}
 
         <div class="content">
-          <div class="test-version-banner">WERSJA TESTOWA · LOGO STACJI</div>
+          <div class="test-version-banner">WERSJA TESTOWA · ver0.5 · LOGO STACJI</div>
           <div class="logo-diagnostics">
             <div class="logo-diagnostics-heading">PORÓWNANIE WYNIKÓW — NUMERY OD LEWEJ</div>
             <div class="logo-diagnostics-row">
@@ -1654,8 +1654,8 @@ class AtlasCubeRadioCardEditor extends HTMLElement {
       </style>
 
       <div class="box">
-        <div class="badge">TEST — LOGO STACJI</div>
-        <h2>AtlasCube Radio — TEST LOGO STACJI</h2>
+        <div class="badge">TEST ver0.5 — LOGO STACJI</div>
+        <h2>AtlasCube Radio — TEST LOGO STACJI ver0.5</h2>
         <p>Karta wykrywa AtlasCube i korzysta z natywnej dostępności MQTT przez stany jego encji.</p>
 
         <button class="auto" id="auto">🔎 Automatycznie wykryj AtlasCube</button>
@@ -1741,8 +1741,8 @@ customElements.define("atlascube-radio-card-station-logo-test", AtlasCubeRadioCa
 window.customCards = window.customCards || [];
 window.customCards.push({
   type: "atlascube-radio-card-station-logo-test",
-  name: "AtlasCube Radio Card — TEST LOGO STACJI",
-  description: "WERSJA TESTOWA — porównanie wielu wyników logo stacji radiowych",
+  name: "AtlasCube Radio Card — TEST LOGO STACJI ver0.5",
+  description: "WERSJA TESTOWA ver0.5 — porównanie wielu wyników logo stacji radiowych",
   preview: true,
   documentationURL: "https://github.com/MarLip1981/atlascube-radio-card-station-logo-test"
 });
